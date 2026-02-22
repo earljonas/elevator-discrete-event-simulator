@@ -3,241 +3,39 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Elevator Simulation UI</title>
+<title>Elevator Simulation</title>
+<link rel="stylesheet" href="/static/style.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-:root {
-  --bg:       #09090b;
-  --panel:    #18181b; 
-  --card:     #27272a; 
-  --border:   #3f3f46; 
-  
-  --accent:   #06b6d4; 
-  --glow:     rgba(6, 182, 212, 0.15);
-  --green:    #10b981; 
-  
-  --text:     #f4f4f5; 
-  --sub:      #a1a1aa; 
-  --dim:      #71717a; 
-
-  --mono:     'IBM Plex Mono', monospace;
-  --sans:     'IBM Plex Sans', sans-serif;
-}
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  display: flex;
-  height: 100vh;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* ── SIDEBAR ── */
-.sidebar {
-  width: 280px; 
-  background: var(--panel);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 24px 20px;
-  gap: 28px;
-  box-shadow: 2px 0 12px rgba(0,0,0,0.2);
-}
-
-.logo {
-  font-family: var(--mono);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: 0.1em;
-  text-shadow: 0 0 12px var(--glow);
-}
-.logo em { 
-  color: var(--text); 
-  font-style: normal; 
-  font-weight: 400;
-}
-
-/* Section */
-.section-title {
-  font-family: var(--mono);
-  font-size: 11px; 
-  font-weight: 600;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  color: var(--dim);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-  margin-bottom: 16px;
-}
-
-/* Slider row */
-.param {
-  margin-bottom: 20px;
-}
-.param-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.param-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--sub);
-}
-.param-value {
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--accent);
-  background: var(--card);
-  border: 1px solid var(--border);
-  padding: 4px 12px;
-  border-radius: 4px;
-  min-width: 46px;
-  text-align: center;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
-}
-
-input[type="range"] {
-  width: 100%;
-  -webkit-appearance: none;
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  outline: none;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-input[type="range"]:hover {
-  background: var(--dim);
-}
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 3px solid var(--panel);
-  cursor: pointer;
-  box-shadow: 0 0 8px var(--glow);
-  transition: transform 0.1s;
-}
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-}
-
-.param-hint {
-  font-family: var(--mono);
-  font-size: 11px; 
-  color: var(--dim);
-  margin-top: 6px;
-}
-
-.constant {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: var(--dim);
-}
-.constant-val {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--sub);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-.btn-run {
-  margin-top: auto;
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: var(--green);
-  color: #022c22; 
-  border: none;
-  border-radius: 6px;
-  padding: 14px;
-  width: 100%;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
-}
-.btn-run:hover { 
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
-}
-.btn-run:active {
-  transform: translateY(1px);
-}
-
-/* Main Area */
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: 14px;
-  letter-spacing: 0.05em;
-  background: radial-gradient(circle at center, var(--panel) 0%, var(--bg) 100%);
-}
-.main-grid {
-  width: 100%;
-  height: 100%;
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-</style>
 </head>
 <body>
 
+<!-- ─── SIDEBAR ──────────────────────────────────────────────────────── -->
 <aside class="sidebar">
   <div class="logo">ELEVATOR<em> SIMULATION</em></div>
 
   <div class="section">
     <div class="section-title">Building Config</div>
-
     <div class="param">
       <div class="param-header">
         <label class="param-label">Number of Floors</label>
         <span class="param-value" id="valFloors">10</span>
       </div>
       <input type="range" id="slFloors" min="4" max="20" value="10"
-        oninput="document.getElementById('valFloors').textContent = this.value">
+        oninput="onFloorsChange(this.value)">
     </div>
-
     <div class="param">
       <div class="param-header">
         <label class="param-label">Elevator Capacity</label>
         <span class="param-value" id="valCap">8</span>
       </div>
       <input type="range" id="slCap" min="2" max="20" value="8"
-        oninput="document.getElementById('valCap').textContent = this.value">
+        oninput="onCapChange(this.value)">
       <div class="param-hint">Max persons per car</div>
     </div>
   </div>
 
   <div class="section">
     <div class="section-title">Passenger Demand</div>
-
     <div class="param">
       <div class="param-header">
         <label class="param-label">Arrival Rate</label>
@@ -249,14 +47,107 @@ input[type="range"]::-webkit-slider-thumb:hover {
     </div>
   </div>
 
-  <button class="btn-run">Run Simulation</button>
+  <div class="section">
+    <div class="section-title">Playback</div>
+    <div class="param">
+      <div class="param-header">
+        <label class="param-label">Animation Speed</label>
+        <span class="param-value" id="valSpeed">10×</span>
+      </div>
+      <input type="range" id="slSpeed" min="1" max="60" value="10"
+        oninput="document.getElementById('valSpeed').textContent = this.value + '×'">
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Fixed Constants</div>
+    <div class="constant"><span>Travel Speed</span><span class="constant-val">2.5 s / floor</span></div>
+    <div class="constant"><span>Door Dwell</span>  <span class="constant-val">5.0 s / stop</span></div>
+    <div class="constant"><span>Dispatch</span>    <span class="constant-val">SCAN</span></div>
+    <div class="constant"><span>Warmup</span>      <span class="constant-val">10 min</span></div>
+    <div class="constant"><span>Duration</span>    <span class="constant-val">8 hours</span></div>
+    <div class="constant"><span>Replications</span><span class="constant-val">10</span></div>
+  </div>
+
+  <button class="btn-run" id="btnRun" onclick="alert('Simulation not wired yet — next step!')">
+    ▶ Run Simulation
+  </button>
 </aside>
 
+<!-- ─── MAIN ─────────────────────────────────────────────────────────── -->
 <main class="main">
-  <div class="main-grid">
-    [ Simulation Viewport ]
+
+  <!-- Status bar -->
+  <div class="statusbar">
+    <div>
+      <div class="status-clock-label">SIM TIME</div>
+      <div class="status-clock" id="simClock">00:00</div>
+    </div>
+    <div class="status-divider"></div>
+    <div class="progress-wrap">
+      <span class="status-msg" id="statusMsg">Adjust parameters and press Run</span>
+      <div class="progress-track">
+        <div class="progress-fill" id="progFill"></div>
+      </div>
+      <span class="progress-pct" id="progPct"></span>
+    </div>
+  </div>
+
+  <!-- Two scenario panes -->
+  <div class="stage">
+
+    <!-- PANE A — 1 Elevator -->
+    <div class="pane pane-a">
+      <div class="pane-header">
+        <div class="pane-dot dot-a"></div>
+        <div class="pane-title">Scenario A — 1 Elevator</div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi-card kpi-wait">
+          <div class="kpi-name">Avg Wait</div>
+          <div class="kpi-val empty" id="kw-a">—</div>
+        </div>
+        <div class="kpi-card kpi-queue">
+          <div class="kpi-name">Avg Queue</div>
+          <div class="kpi-val empty" id="kq-a">—</div>
+        </div>
+        <div class="kpi-card kpi-util">
+          <div class="kpi-name">Utilization</div>
+          <div class="kpi-val empty" id="ku-a">—</div>
+        </div>
+      </div>
+      <div class="building-wrap" id="buildA"></div>
+    </div>
+
+    <div class="stage-divider"></div>
+
+    <!-- PANE B — 2 Elevators -->
+    <div class="pane pane-b">
+      <div class="pane-header">
+        <div class="pane-dot dot-b"></div>
+        <div class="pane-title">Scenario B — 2 Elevators</div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi-card kpi-wait">
+          <div class="kpi-name">Avg Wait</div>
+          <div class="kpi-val empty" id="kw-b">—</div>
+        </div>
+        <div class="kpi-card kpi-queue">
+          <div class="kpi-name">Avg Queue</div>
+          <div class="kpi-val empty" id="kq-b">—</div>
+        </div>
+        <div class="kpi-card kpi-util">
+          <div class="kpi-name">Utilization</div>
+          <div class="kpi-val empty" id="ku-b">—</div>
+        </div>
+      </div>
+      <div class="building-wrap" id="buildB"></div>
+    </div>
+
   </div>
 </main>
 
+<script src="/static/index.js">
+</script>
 </body>
 </html>
