@@ -3,47 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Elevator Simulation</title>
+<title>Elevator Simulation — M/D/c</title>
 <link rel="stylesheet" href="/static/style.css">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 
-<!-- ─── SIDEBAR ──────────────────────────────────────────────────────── -->
+<!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════════ -->
 <aside class="sidebar">
-  <div class="logo">ELEVATOR<em> SIMULATION</em></div>
+  <div class="logo">ELEVA<em>SIM</em></div>
+  <div class="logo-sub">M/D/c Queue Model</div>
 
   <div class="section">
-    <div class="section-title">Building Config</div>
+    <div class="section-title">Building</div>
     <div class="param">
       <div class="param-header">
-        <label class="param-label">Number of Floors</label>
+        <label class="param-label">Floors</label>
         <span class="param-value" id="valFloors">10</span>
       </div>
       <input type="range" id="slFloors" min="4" max="20" value="10"
-        oninput="onFloorsChange(this.value)">
+        oninput="onSlider('valFloors',this.value,''); rebuildViz()">
     </div>
     <div class="param">
       <div class="param-header">
-        <label class="param-label">Elevator Capacity</label>
+        <label class="param-label">Car Capacity</label>
         <span class="param-value" id="valCap">8</span>
       </div>
       <input type="range" id="slCap" min="2" max="20" value="8"
-        oninput="onCapChange(this.value)">
-      <div class="param-hint">Max persons per car</div>
+        oninput="onSlider('valCap',this.value,' pax'); rebuildViz()">
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">Passenger Demand</div>
+    <div class="section-title">Demand  <span class="tag-m">M — Poisson</span></div>
     <div class="param">
       <div class="param-header">
-        <label class="param-label">Arrival Rate</label>
+        <label class="param-label">Arrival Rate λ</label>
         <span class="param-value" id="valRate">50</span>
       </div>
-      <input type="range" id="slRate" min="10" max="100" value="50"
-        oninput="document.getElementById('valRate').textContent = this.value">
-      <div class="param-hint">Passengers per minute</div>
+      <input type="range" id="slRate" min="5" max="150" value="50"
+        oninput="onSlider('valRate',this.value,' /min')">
+      <div class="param-hint">Passengers per minute (Poisson process)</div>
     </div>
   </div>
 
@@ -52,53 +52,57 @@
     <div class="param">
       <div class="param-header">
         <label class="param-label">Animation Speed</label>
-        <span class="param-value" id="valSpeed">10×</span>
+        <span class="param-value" id="valSpeed">20×</span>
       </div>
-      <input type="range" id="slSpeed" min="1" max="60" value="10"
-        oninput="document.getElementById('valSpeed').textContent = this.value + '×'">
+      <input type="range" id="slSpeed" min="1" max="120" value="20"
+        oninput="onSlider('valSpeed',this.value,'×'); G.speed=+this.value">
     </div>
   </div>
 
   <div class="section">
-    <div class="section-title">Fixed Constants</div>
-    <div class="constant"><span>Travel Speed</span><span class="constant-val">2.5 s / floor</span></div>
-    <div class="constant"><span>Door Dwell</span>  <span class="constant-val">5.0 s / stop</span></div>
+    <div class="section-title">Fixed Constants  <span class="tag-d">D — Deterministic</span></div>
+    <div class="constant"><span>Travel speed</span><span class="constant-val">2.5 s / floor</span></div>
+    <div class="constant"><span>Door dwell</span>  <span class="constant-val">5.0 s / stop</span></div>
     <div class="constant"><span>Dispatch</span>    <span class="constant-val">SCAN</span></div>
+    <div class="constant"><span>Queue</span>       <span class="constant-val">FIFO · no reneging</span></div>
     <div class="constant"><span>Warmup</span>      <span class="constant-val">10 min</span></div>
-    <div class="constant"><span>Duration</span>    <span class="constant-val">8 hours</span></div>
-    <div class="constant"><span>Replications</span><span class="constant-val">10</span></div>
+    <div class="constant"><span>Sim horizon</span> <span class="constant-val">8 hours</span></div>
+    <div class="constant"><span>Replications</span><span class="constant-val">5</span></div>
   </div>
 
-  <button class="btn-run" id="btnRun" onclick="alert('Simulation not wired yet — next step!')">
-    ▶ Run Simulation
-  </button>
+  <button class="btn-run" id="btnRun">▶ Run Simulation</button>
 </aside>
 
-<!-- ─── MAIN ─────────────────────────────────────────────────────────── -->
+<!-- ═══ MAIN ══════════════════════════════════════════════════════════════ -->
 <main class="main">
+
+  <!-- Loading overlay (visible while SimPy computes) -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Computing simulation…</div>
+    <div class="loading-sub">Running 5 replications × 2 scenarios</div>
+  </div>
 
   <!-- Status bar -->
   <div class="statusbar">
-    <div>
-      <div class="status-clock-label">SIM TIME</div>
-      <div class="status-clock" id="simClock">00:00</div>
+    <div class="clock-block">
+      <div class="clock-label">SIM TIME</div>
+      <div class="clock" id="simClock">00:00</div>
     </div>
-    <div class="status-divider"></div>
-    <div class="progress-wrap">
-      <span class="status-msg" id="statusMsg">Adjust parameters and press Run</span>
-      <div class="progress-track">
-        <div class="progress-fill" id="progFill"></div>
-      </div>
+    <div class="status-sep"></div>
+    <div class="status-right">
+      <span class="status-msg" id="statusMsg">Set parameters and press Run</span>
+      <div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
       <span class="progress-pct" id="progPct"></span>
     </div>
   </div>
 
-  <!-- Two scenario panes -->
+  <!-- Two-pane stage -->
   <div class="stage">
 
-    <!-- PANE A — 1 Elevator -->
+    <!-- Scenario A -->
     <div class="pane pane-a">
-      <div class="pane-header">
+      <div class="pane-hdr">
         <div class="pane-dot dot-a"></div>
         <div class="pane-title">Scenario A — 1 Elevator</div>
       </div>
@@ -119,11 +123,11 @@
       <div class="building-wrap" id="buildA"></div>
     </div>
 
-    <div class="stage-divider"></div>
+    <div class="stage-sep"></div>
 
-    <!-- PANE B — 2 Elevators -->
+    <!-- Scenario B -->
     <div class="pane pane-b">
-      <div class="pane-header">
+      <div class="pane-hdr">
         <div class="pane-dot dot-b"></div>
         <div class="pane-title">Scenario B — 2 Elevators</div>
       </div>
@@ -144,10 +148,13 @@
       <div class="building-wrap" id="buildB"></div>
     </div>
 
-  </div>
+  </div><!-- /stage -->
+
+  <!-- Results panel (slides up after animation) -->
+  <div class="results-panel" id="resultsPanel"></div>
+
 </main>
 
-<script src="/static/index.js">
-</script>
+<script src="/static/index.js"></script>
 </body>
 </html>
