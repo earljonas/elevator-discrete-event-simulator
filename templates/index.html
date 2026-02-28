@@ -6,16 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Elevator Simulation</title>
   <link rel="stylesheet" href="/static/style.css">
-  <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 
 <body>
-
-  <!-- ═══ SIDEBAR ═══════════════════════════════════════════════════════════ -->
   <aside class="sidebar">
-    <div class="logo">ELEVA<em>SIM</em></div>
+    <div class="logo">ELEVATOR<em> SIM</em></div>
 
     <div class="section">
       <div class="section-title">Building</div>
@@ -24,25 +20,22 @@
           <label class="param-label">Floors</label>
           <span class="param-value" id="valFloors">10</span>
         </div>
-        <input type="range" id="slFloors" min="5" max="30" value="10"
-          oninput="onSlider('valFloors',this.value,''); rebuildViz()">
+        <input type="range" id="slFloors" min="5" max="30" value="10" oninput="onSlider('valFloors',this.value,''); rebuildViz()">
       </div>
       <div class="param">
         <div class="param-header">
           <label class="param-label">Car Capacity</label>
           <span class="param-value" id="valCap">8 pax</span>
         </div>
-        <input type="range" id="slCap" min="4" max="20" value="8"
-          oninput="onSlider('valCap',this.value,' pax'); rebuildViz()">
+        <input type="range" id="slCap" min="4" max="20" value="8" oninput="onSlider('valCap',this.value,' pax'); rebuildViz()">
       </div>
     </div>
 
     <div class="section">
-      <div class="section-title">Demand <span class="tag-m">M — Poisson</span></div>
       <div class="param">
         <div class="param-header">
           <label class="param-label">Arrival Rate λ</label>
-          <span class="param-value" id="valRate">20 /min</span>
+          <span class="param-value" id="valRate">20/min</span>
         </div>
         <input type="range" id="slRate" min="5" max="50" value="20" oninput="onSlider('valRate',this.value,' /min')">
         <div class="param-hint">Passengers per minute (Poisson process)</div>
@@ -50,39 +43,33 @@
     </div>
 
     <div class="section">
-      <div class="section-title">Playback</div>
       <div class="param">
         <div class="param-header">
           <label class="param-label">Animation Speed</label>
-          <span class="param-value" id="valSpeed">20×</span>
+          <span class="param-value" id="valSpeed">20x</span>
         </div>
-        <input type="range" id="slSpeed" min="1" max="120" value="20"
-          oninput="onSlider('valSpeed',this.value,'×'); G.speed=+this.value">
+        <input type="range" id="slSpeed" min="1" max="120" value="20" oninput="onSlider('valSpeed',this.value,'x'); G.speed=+this.value">
       </div>
     </div>
 
     <div class="section">
-      <div class="section-title">Fixed Constants <span class="tag-d">D — Deterministic</span></div>
+      <div class="section-title"></div>
       <div class="constant"><span>Travel speed</span><span class="constant-val">2.5 s / floor</span></div>
       <div class="constant"><span>Door dwell</span> <span class="constant-val">5.0 s / stop</span></div>
-      <div class="constant"><span>Dispatch</span> <span class="constant-val">SCAN</span></div>
-      <div class="constant"><span>Queue</span> <span class="constant-val">FIFO · no reneging</span></div>
+      <div class="constant"><span>Dispatch</span> <span class="constant-val">SCAN-like</span></div>
+      <div class="constant"><span>Queue</span> <span class="constant-val">FIFO - no reneging</span></div>
       <div class="constant"><span>Sim horizon</span> <span class="constant-val">8 hours</span></div>
     </div>
 
-    <button class="btn-run" id="btnRun">▶ Run Simulation</button>
+    <button class="btn-run" id="btnRun">Run Simulation</button>
   </aside>
 
-  <!-- ═══ MAIN ══════════════════════════════════════════════════════════════ -->
   <main class="main">
-
-    <!-- Loading overlay (visible while SimPy computes) -->
     <div class="loading-overlay" id="loadingOverlay">
       <div class="loading-spinner"></div>
-      <div class="loading-text" id="loadingText">Computing 8-hour shift...</div>
+      <div class="loading-text" id="loadingText">Computing...</div>
     </div>
 
-    <!-- Status bar -->
     <div class="statusbar">
       <div class="clock-block">
         <div class="clock-label">SIM TIME</div>
@@ -91,69 +78,42 @@
       <div class="status-sep"></div>
       <div class="status-right">
         <span class="status-msg" id="statusMsg">Set parameters and press Run</span>
-        <div class="progress-track">
-          <div class="progress-fill" id="progFill"></div>
-        </div>
+        <div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
         <span class="progress-pct" id="progPct"></span>
       </div>
     </div>
 
-    <!-- Two-pane stage -->
     <div class="stage">
-
-      <!-- Scenario A -->
       <div class="pane pane-a">
         <div class="pane-hdr">
           <div class="pane-dot dot-a"></div>
-          <div class="pane-title">Scenario A — 1 Elevator</div>
+          <div class="pane-title">Scenario A - 1 Elevator</div>
         </div>
         <div class="kpi-row">
-          <div class="kpi-card kpi-wait">
-            <div class="kpi-name">Avg Wait</div>
-            <div class="kpi-val empty" id="kw-a">—</div>
-          </div>
-          <div class="kpi-card kpi-queue">
-            <div class="kpi-name">Avg Queue</div>
-            <div class="kpi-val empty" id="kq-a">—</div>
-          </div>
-          <div class="kpi-card kpi-util">
-            <div class="kpi-name">Utilization</div>
-            <div class="kpi-val empty" id="ku-a">—</div>
-          </div>
+          <div class="kpi-card kpi-wait"><div class="kpi-name">Avg Wait</div><div class="kpi-val empty" id="kw-a">-</div></div>
+          <div class="kpi-card kpi-queue"><div class="kpi-name">Avg Queue</div><div class="kpi-val empty" id="kq-a">-</div></div>
+          <div class="kpi-card kpi-served"><div class="kpi-name">Passengers Served</div><div class="kpi-val empty" id="ks-a">-</div></div>
         </div>
         <div class="building-wrap" id="buildA"></div>
       </div>
 
       <div class="stage-sep"></div>
 
-      <!-- Scenario B -->
       <div class="pane pane-b">
         <div class="pane-hdr">
           <div class="pane-dot dot-b"></div>
-          <div class="pane-title">Scenario B — 2 Elevators</div>
+          <div class="pane-title">Scenario B - 2 Elevators</div>
         </div>
         <div class="kpi-row">
-          <div class="kpi-card kpi-wait">
-            <div class="kpi-name">Avg Wait</div>
-            <div class="kpi-val empty" id="kw-b">—</div>
-          </div>
-          <div class="kpi-card kpi-queue">
-            <div class="kpi-name">Avg Queue</div>
-            <div class="kpi-val empty" id="kq-b">—</div>
-          </div>
-          <div class="kpi-card kpi-util">
-            <div class="kpi-name">Utilization</div>
-            <div class="kpi-val empty" id="ku-b">—</div>
-          </div>
+          <div class="kpi-card kpi-wait"><div class="kpi-name">Avg Wait</div><div class="kpi-val empty" id="kw-b">-</div></div>
+          <div class="kpi-card kpi-queue"><div class="kpi-name">Avg Queue</div><div class="kpi-val empty" id="kq-b">-</div></div>
+          <div class="kpi-card kpi-served"><div class="kpi-name">Passengers Served</div><div class="kpi-val empty" id="ks-b">-</div></div>
         </div>
         <div class="building-wrap" id="buildB"></div>
       </div>
+    </div>
 
-    </div><!-- /stage -->
-
-    <!-- Results panel (slides up after animation) -->
     <div class="results-panel" id="resultsPanel"></div>
-
   </main>
 
   <script src="/static/index.js"></script>
