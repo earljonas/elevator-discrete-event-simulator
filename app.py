@@ -33,6 +33,8 @@ def run():
     try:
         return jsonify(run_both(floors, capacity, arrival))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

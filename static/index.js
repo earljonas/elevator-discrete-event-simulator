@@ -11,26 +11,26 @@
 
 // ── Global config / state ─────────────────────────────────────────────────
 const G = {
-  floors:   10,
-  capacity:  8,
-  speed:    20,       // animation speed multiplier
-  animId:   null,
-  data:     null,     // full JSON from server
+  floors: 10,
+  capacity: 8,
+  speed: 20,       // animation speed multiplier
+  animId: null,
+  data: null,     // full JSON from server
 };
 
 // Playback cursor
 const P = {
-  frames:    [],      // [{a: frameA, b: frameB}, ...]
-  idx:       0,
-  lastTs:    null,
-  accMs:     0,
-  running:   false,
+  frames: [],      // [{a: frameA, b: frameB}, ...]
+  idx: 0,
+  lastTs: null,
+  accMs: 0,
+  running: false,
   firstDraw: true,
 };
 
-// Each sim frame represents 60 real sim-seconds.
-// At 1× speed → 80 ms per frame  →  ~38 s to watch 8-hour sim
-// At 20× speed → 2 ms per frame  →  ~2 s
+// Each sim frame represents 10 real sim-seconds (FRAME_INTERVAL = 10).
+// At 1× speed → 80 ms per frame  →  ~230 s to watch 8-hour sim
+// At 20× speed → 4 ms per frame  →  ~11.5 s
 const MS_PER_FRAME = 80;
 
 
@@ -41,7 +41,7 @@ function onSlider(valId, val, suffix) {
 }
 
 function rebuildViz() {
-  G.floors   = +document.getElementById("slFloors").value;
+  G.floors = +document.getElementById("slFloors").value;
   G.capacity = +document.getElementById("slCap").value;
   buildViz("buildA", 1);
   buildViz("buildB", 2);
@@ -49,14 +49,38 @@ function rebuildViz() {
 
 function $(id) { return document.getElementById(id); }
 
-function setStatus(msg)     { $("statusMsg").textContent = msg; }
-function setProgress(pct)   {
-  $("progFill").style.width  = Math.min(pct, 100) + "%";
-  $("progPct").textContent   = pct > 0 ? Math.round(pct) + "%" : "";
+function setStatus(msg) { $("statusMsg").textContent = msg; }
+function setControlsLocked(locked) {
+  ["slFloors", "slCap", "slRate"].forEach(id => {
+    const el = $(id);
+    if (el) el.disabled = locked;
+  });
+  const speed = $("slSpeed");
+  if (speed) speed.disabled = false;
 }
-function setClock(hours)    {
+function setProgress(pct) {
+  $("progFill").style.width = Math.min(pct, 100) + "%";
+  $("progPct").textContent = pct > 0 ? Math.round(pct) + "%" : "";
+}
+function setClock(hours) {
   const h = Math.floor(hours), m = Math.floor((hours % 1) * 60);
-  $("simClock").textContent = String(h).padStart(2,"0") + ":" + String(m).padStart(2,"0");
+  $("simClock").textContent = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+
+// ── Human-readable time formatting ────────────────────────────────────────
+function fmtWait(seconds) {
+  if (seconds <= 0) return "0 s";
+  if (seconds < 60) return seconds.toFixed(1) + " s";
+  if (seconds < 3600) return (seconds / 60).toFixed(1) + " min";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return h + "h " + m + "m";
+}
+
+function fmtQueue(val) {
+  if (val <= 0) return "0";
+  if (val < 10) return val.toFixed(1);
+  return Math.round(val).toLocaleString();
 }
 
 function setKpi(id, val) {
@@ -66,7 +90,7 @@ function setKpi(id, val) {
   el.textContent = val;
 }
 function clearKpis() {
-  ["kw-a","kq-a","ku-a","kw-b","kq-b","ku-b"].forEach(id => {
+  ["kw-a", "kq-a", "ku-a", "kw-b", "kq-b", "ku-b"].forEach(id => {
     const el = $(id);
     if (!el) return;
     el.classList.add("empty");
@@ -82,7 +106,7 @@ function buildViz(wrapperId, numElevators) {
   if (!wrap) return;
   wrap.innerHTML = "";
 
-  const floors   = G.floors;
+  const floors = G.floors;
   const capacity = G.capacity;
 
   // Floor labels
@@ -96,12 +120,12 @@ function buildViz(wrapperId, numElevators) {
 
   // Shaft(s)
   const shaftsEl = ce("div", "shafts");
-  const names  = numElevators === 1 ? ["E-A"]   : ["E-A",  "E-B"];
-  const cls    = numElevators === 1 ? ["car-a"]  : ["car-a","car-b"];
+  const names = numElevators === 1 ? ["E-A"] : ["E-A", "E-B"];
+  const cls = numElevators === 1 ? ["car-a"] : ["car-a", "car-b"];
 
   for (let s = 0; s < numElevators; s++) {
-    const grp   = ce("div", "shaft-group");
-    const lbl   = ce("div", "shaft-label");
+    const grp = ce("div", "shaft-group");
+    const lbl = ce("div", "shaft-label");
     lbl.textContent = names[s];
     grp.appendChild(lbl);
 
@@ -117,6 +141,7 @@ function buildViz(wrapperId, numElevators) {
     const car = ce("div", "elevator-car " + cls[s]);
     car.id = wrapperId + "-car-" + s;
     car.innerHTML =
+      `<div class="car-dir" id="${wrapperId}-dir-${s}">—</div>` +
       `<div class="car-id">${names[s]}</div>` +
       `<div class="car-load" id="${wrapperId}-load-${s}">0/${capacity}</div>`;
     shaft.appendChild(car);
@@ -126,7 +151,7 @@ function buildViz(wrapperId, numElevators) {
   }
   wrap.appendChild(shaftsEl);
 
-  // Queue dots column
+  // Queue column
   const qcol = ce("div", "queue-col");
   const qhdr = ce("div", "queue-col-hdr");
   qhdr.textContent = "QUEUE";
@@ -154,14 +179,25 @@ function ce(tag, cls) {
 // ── Render primitives ─────────────────────────────────────────────────────
 
 function moveCar(vizId, shaftIdx, floor, animate) {
-  const car   = $(vizId + "-car-" + shaftIdx);
+  const car = $(vizId + "-car-" + shaftIdx);
   const shaft = $(vizId + "-shaft-" + shaftIdx);
   if (!car || !shaft) return;
   const shaftH = shaft.clientHeight;
   const floorH = shaftH / G.floors;
-  car.style.height     = Math.max(floorH - 6, 18) + "px";
-  car.style.transition = animate ? "bottom 0.22s ease-in-out" : "none";
-  car.style.bottom     = ((floor - 1) * floorH + 3) + "px";
+  car.style.height = Math.max(floorH - 6, 18) + "px";
+  const frameMs = MS_PER_FRAME / Math.max(G.speed, 1);
+  const travelMs = Math.max(30, Math.min(180, frameMs * 0.85));
+  car.style.transition = (animate && frameMs >= 35)
+    ? `bottom ${travelMs}ms linear`
+    : "none";
+  car.style.bottom = ((floor - 1) * floorH + 3) + "px";
+}
+
+function setDirection(vizId, shaftIdx, dir) {
+  const el = $(vizId + "-dir-" + shaftIdx);
+  if (!el) return;
+  el.textContent = dir === 1 ? "▲" : dir === -1 ? "▼" : "—";
+  el.className = "car-dir" + (dir === 1 ? " dir-up" : dir === -1 ? " dir-down" : "");
 }
 
 function setLoad(vizId, shaftIdx, current) {
@@ -173,12 +209,22 @@ function drawQueue(vizId, floor, count) {
   const el = $(vizId + "-q" + floor);
   if (!el) return;
   el.innerHTML = "";
-  const show = Math.min(count, 15);
-  for (let i = 0; i < show; i++) el.appendChild(ce("div", "q-dot"));
-  if (count > 15) {
-    const s = ce("span", "q-more");
-    s.textContent = "+" + (count - 15);
-    el.appendChild(s);
+
+  if (count === 0) return;
+
+  if (count <= 20) {
+    // Show individual dots for small queues
+    for (let i = 0; i < count; i++) el.appendChild(ce("div", "q-dot"));
+  } else {
+    // Compact bar + number for large queues
+    const bar = ce("div", "q-bar");
+    const maxWidth = 80; // percent
+    const ratio = Math.min(count / 100, 1); // cap visual at 100
+    bar.style.width = Math.max(ratio * maxWidth, 10) + "%";
+    el.appendChild(bar);
+    const lbl = ce("span", "q-count");
+    lbl.textContent = count.toLocaleString();
+    el.appendChild(lbl);
   }
 }
 
@@ -189,8 +235,8 @@ function animLoop(ts) {
   if (!P.running) return;
 
   if (P.lastTs === null) P.lastTs = ts;
-  P.accMs  += (ts - P.lastTs) * G.speed;
-  P.lastTs  = ts;
+  P.accMs += (ts - P.lastTs) * G.speed;
+  P.lastTs = ts;
 
   // Advance frame index by however many frames elapsed wall time covers
   while (P.accMs >= MS_PER_FRAME && P.idx < P.frames.length - 1) {
@@ -198,7 +244,7 @@ function animLoop(ts) {
     P.idx++;
   }
 
-  const f  = P.frames[P.idx];
+  const f = P.frames[P.idx];
   const fa = f.a, fb = f.b;
   const an = !P.firstDraw;
   P.firstDraw = false;
@@ -206,20 +252,26 @@ function animLoop(ts) {
   // Draw Scenario A
   moveCar("buildA", 0, fa.ef[0], an);
   setLoad("buildA", 0, fa.el[0]);
-  for (let i = 1; i <= G.floors; i++) drawQueue("buildA", i, fa.ql[i-1] || 0);
+  setDirection("buildA", 0, fa.ed ? fa.ed[0] : 0);
+  for (let i = 1; i <= G.floors; i++) drawQueue("buildA", i, fa.ql[i - 1] || 0);
 
   // Draw Scenario B
   moveCar("buildB", 0, fb.ef[0], an);
   setLoad("buildB", 0, fb.el[0]);
-  if (fb.ef.length > 1) { moveCar("buildB", 1, fb.ef[1], an); setLoad("buildB", 1, fb.el[1]); }
-  for (let i = 1; i <= G.floors; i++) drawQueue("buildB", i, fb.ql[i-1] || 0);
+  setDirection("buildB", 0, fb.ed ? fb.ed[0] : 0);
+  if (fb.ef.length > 1) {
+    moveCar("buildB", 1, fb.ef[1], an);
+    setLoad("buildB", 1, fb.el[1]);
+    setDirection("buildB", 1, fb.ed ? fb.ed[1] : 0);
+  }
+  for (let i = 1; i <= G.floors; i++) drawQueue("buildB", i, fb.ql[i - 1] || 0);
 
-  // Live KPI numbers — update every frame
-  setKpi("kw-a", fa.aw + " s");
-  setKpi("kq-a", fa.aq + "");
+  // Live KPI numbers — human-readable format
+  setKpi("kw-a", fmtWait(fa.aw));
+  setKpi("kq-a", fmtQueue(fa.aq));
   setKpi("ku-a", fa.ut + " %");
-  setKpi("kw-b", fb.aw + " s");
-  setKpi("kq-b", fb.aq + "");
+  setKpi("kw-b", fmtWait(fb.aw));
+  setKpi("kq-b", fmtQueue(fb.aq));
   setKpi("ku-b", fb.ut + " %");
 
   // Clock + progress
@@ -228,18 +280,19 @@ function animLoop(ts) {
 
   // Finished?
   if (P.idx >= P.frames.length - 1) {
-    P.running  = false;
-    G.animId   = null;
+    P.running = false;
+    G.animId = null;
     setClock(8);
     setProgress(100);
     setStatus("Simulation complete");
-    // Overwrite with final multi-rep KPIs
+    // Overwrite with final multi-rep KPIs (human-readable)
     const ka = G.data.scenario_a.kpis, kb = G.data.scenario_b.kpis;
-    setKpi("kw-a", ka.avg_wait    + " s");   setKpi("kw-b", kb.avg_wait    + " s");
-    setKpi("kq-a", ka.avg_queue   + "");     setKpi("kq-b", kb.avg_queue   + "");
-    setKpi("ku-a", ka.utilization + " %");   setKpi("ku-b", kb.utilization + " %");
+    setKpi("kw-a", fmtWait(ka.avg_wait)); setKpi("kw-b", fmtWait(kb.avg_wait));
+    setKpi("kq-a", fmtQueue(ka.avg_queue)); setKpi("kq-b", fmtQueue(kb.avg_queue));
+    setKpi("ku-a", ka.utilization + " %"); setKpi("ku-b", kb.utilization + " %");
     showResults();
     $("btnRun").disabled = false;
+    setControlsLocked(false);
     return;
   }
 
@@ -252,9 +305,9 @@ function animLoop(ts) {
 async function runSimulation() {
   if (G.animId) { cancelAnimationFrame(G.animId); G.animId = null; }
 
-  G.floors   = +$("slFloors").value;
+  G.floors = +$("slFloors").value;
   G.capacity = +$("slCap").value;
-  G.speed    = +$("slSpeed").value;
+  G.speed = +$("slSpeed").value;
   const arrival = +$("slRate").value;
 
   // Reset UI
@@ -266,6 +319,7 @@ async function runSimulation() {
   setProgress(0);
   setStatus("Computing simulation…");
   $("btnRun").disabled = true;
+  setControlsLocked(true);
   $("loadingOverlay").style.display = "flex";
 
   // ── POST /run ────────────────────────────────────────────────────────
@@ -276,15 +330,18 @@ async function runSimulation() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ floors: G.floors, capacity: G.capacity, arrival }),
     });
+
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
       throw new Error(e.error || "Server error " + res.status);
     }
+
     data = await res.json();
   } catch (err) {
     $("loadingOverlay").style.display = "none";
     setStatus("✗ " + err.message);
     $("btnRun").disabled = false;
+    setControlsLocked(false);
     return;
   }
 
@@ -294,17 +351,18 @@ async function runSimulation() {
   // Zip frames from both scenarios
   const fa = data.scenario_a.frames;
   const fb = data.scenario_b.frames;
-  const n  = Math.min(fa.length, fb.length);
-  P.frames    = Array.from({ length: n }, (_, i) => ({ a: fa[i], b: fb[i] }));
-  P.idx       = 0;
-  P.lastTs    = null;
-  P.accMs     = 0;
-  P.running   = true;
+  const n = Math.min(fa.length, fb.length);
+  P.frames = Array.from({ length: n }, (_, i) => ({ a: fa[i], b: fb[i] }));
+  P.idx = 0;
+  P.lastTs = null;
+  P.accMs = 0;
+  P.running = true;
   P.firstDraw = true;
 
   if (n === 0) {
     setStatus("No frames generated. Try a higher arrival rate.");
     $("btnRun").disabled = false;
+    setControlsLocked(false);
     return;
   }
 
@@ -317,21 +375,19 @@ async function runSimulation() {
 
 function showResults() {
   const panel = $("resultsPanel");
-  const a  = G.data.scenario_a.kpis;
-  const b  = G.data.scenario_b.kpis;
-  const ca = G.data.scenario_a.ci;
-  const cb = G.data.scenario_b.ci;
-  const p  = G.data.params;
+  const a = G.data.scenario_a.kpis;
+  const b = G.data.scenario_b.kpis;
+  const p = G.data.params;
 
   const better = (aWins) =>
     aWins ? '<span class="badge-better">BETTER</span>' : "";
 
-  const row = (label, av, bv, lo) => {
-    const aW = lo ? +av <= +bv : +av >= +bv;
+  const row = (label, avText, bvText, avNum, bvNum, lowerIsBetter) => {
+    const aW = lowerIsBetter ? avNum <= bvNum : avNum >= bvNum;
     return `<tr>
       <td class="r-metric">${label}</td>
-      <td class="r-a">${av} ${better(aW)}</td>
-      <td class="r-b">${bv} ${better(!aW)}</td>
+      <td class="r-a">${avText} ${better(aW)}</td>
+      <td class="r-b">${bvText} ${better(!aW)}</td>
     </tr>`;
   };
 
@@ -342,7 +398,7 @@ function showResults() {
         <div class="rp-title">Simulation Results</div>
         <div class="rp-sub">
           M/D/c · ${p.floors} floors · λ=${p.arrival} pax/min ·
-          ${p.duration_hr}h · ${p.reps} reps
+          ${p.duration_hr}h
         </div>
       </div>
       <div class="rp-actions">
@@ -358,31 +414,13 @@ function showResults() {
         <th class="th-b">B — 2 Elevators</th>
       </tr></thead>
       <tbody>
-        ${row("Avg Wait Time",     a.avg_wait    + " s",  b.avg_wait    + " s",  true)}
-        ${row("Max Wait Time",     a.max_wait    + " s",  b.max_wait    + " s",  true)}
-        ${row("Avg Queue Length",  a.avg_queue   + " pax",b.avg_queue   + " pax",true)}
-        ${row("Utilization",       a.utilization + " %",  b.utilization + " %",  true)}
-        ${row("Passengers Served", a.passengers_served,   b.passengers_served,   false)}
+        ${row("Avg Wait Time", fmtWait(a.avg_wait), fmtWait(b.avg_wait), a.avg_wait, b.avg_wait, true)}
+        ${row("Max Wait Time", fmtWait(a.max_wait), fmtWait(b.max_wait), a.max_wait, b.max_wait, true)}
+        ${row("Avg Queue Length", fmtQueue(a.avg_queue) + " pax", fmtQueue(b.avg_queue) + " pax", a.avg_queue, b.avg_queue, true)}
+        ${row("Utilization", a.utilization + " %", b.utilization + " %", a.utilization, b.utilization, false)}
+        ${row("Passengers Served", a.passengers_served, b.passengers_served, a.passengers_served, b.passengers_served, false)}
       </tbody>
     </table>
-
-    <div class="ci-block">
-      <div class="ci-title">95 % Confidence Intervals (${p.reps} replications)</div>
-      <div class="ci-grid">
-        <div class="ci-item"><span class="ci-lbl ci-a">A · Wait</span>
-          <span class="ci-val">[${ca.wait[0]}, ${ca.wait[1]}] s</span></div>
-        <div class="ci-item"><span class="ci-lbl ci-b">B · Wait</span>
-          <span class="ci-val">[${cb.wait[0]}, ${cb.wait[1]}] s</span></div>
-        <div class="ci-item"><span class="ci-lbl ci-a">A · Queue</span>
-          <span class="ci-val">[${ca.queue[0]}, ${ca.queue[1]}] pax</span></div>
-        <div class="ci-item"><span class="ci-lbl ci-b">B · Queue</span>
-          <span class="ci-val">[${cb.queue[0]}, ${cb.queue[1]}] pax</span></div>
-        <div class="ci-item"><span class="ci-lbl ci-a">A · Util</span>
-          <span class="ci-val">[${ca.util[0]}, ${ca.util[1]}] %</span></div>
-        <div class="ci-item"><span class="ci-lbl ci-b">B · Util</span>
-          <span class="ci-val">[${cb.util[0]}, ${cb.util[1]}] %</span></div>
-      </div>
-    </div>
   </div>`;
 
   panel.classList.add("show");
@@ -397,7 +435,7 @@ function hideResults() {
 function tryAgain() {
   if (G.animId) { cancelAnimationFrame(G.animId); G.animId = null; }
   P.running = false;
-  G.data    = null;
+  G.data = null;
   hideResults();
   clearKpis();
   setClock(0);
@@ -406,6 +444,7 @@ function tryAgain() {
   buildViz("buildA", 1);
   buildViz("buildB", 2);
   $("btnRun").disabled = false;
+  setControlsLocked(false);
 }
 
 
@@ -413,11 +452,10 @@ function tryAgain() {
 
 function downloadCSV() {
   if (!G.data) return;
-  const d  = G.data;
-  const a  = d.scenario_a.kpis, b  = d.scenario_b.kpis;
-  const ca = d.scenario_a.ci,   cb = d.scenario_b.ci;
+  const d = G.data;
+  const a = d.scenario_a.kpis, b = d.scenario_b.kpis;
   const fa = d.scenario_a.frames, fb = d.scenario_b.frames;
-  const p  = d.params;
+  const p = d.params;
 
   const L = [];  // rows
 
@@ -427,10 +465,9 @@ function downloadCSV() {
   L.push(`Car Capacity,${p.capacity}`);
   L.push(`Arrival Rate (pax/min),${p.arrival}`);
   L.push(`Sim Duration (hr),${p.duration_hr}`);
-  L.push(`Warmup (min),${p.warmup_min}`);
-  L.push(`Replications,${p.reps}`);
-  L.push(`Dispatch Algorithm,SCAN`);
+  L.push(`Dispatch Algorithm,SCAN (nearest-call coordination)`);
   L.push(`Queue Discipline,FIFO - No Reneging`);
+  L.push(`Boarding,Direction-aware`);
   L.push("");
 
   L.push("KPI SUMMARY");
@@ -442,32 +479,25 @@ function downloadCSV() {
   L.push(`Passengers Served,${a.passengers_served},${b.passengers_served}`);
   L.push("");
 
-  L.push("95% CONFIDENCE INTERVALS");
-  L.push("Metric,A Lo,A Hi,B Lo,B Hi");
-  L.push(`Wait (s),${ca.wait[0]},${ca.wait[1]},${cb.wait[0]},${cb.wait[1]}`);
-  L.push(`Queue (pax),${ca.queue[0]},${ca.queue[1]},${cb.queue[0]},${cb.queue[1]}`);
-  L.push(`Utilization (%),${ca.util[0]},${ca.util[1]},${cb.util[0]},${cb.util[1]}`);
-  L.push("");
-
-  L.push("ANIMATION FRAMES — REPLICATION 1");
-  L.push("Sim Hour,A Floor,A Load,A AvgWait(s),A AvgQueue,A Util%,"
-       + "B Elev1 Floor,B Elev1 Load,B Elev2 Floor,B Elev2 Load,"
-       + "B AvgWait(s),B AvgQueue,B Util%");
+  L.push("ANIMATION FRAMES");
+  L.push("Sim Hour,A Floor,A Dir,A Load,A AvgWait(s),A AvgQueue,A Util%,"
+    + "B Elev1 Floor,B Elev1 Dir,B Elev1 Load,B Elev2 Floor,B Elev2 Dir,B Elev2 Load,"
+    + "B AvgWait(s),B AvgQueue,B Util%");
 
   const n = Math.min(fa.length, fb.length);
   for (let i = 0; i < n; i++) {
     const ra = fa[i], rb = fb[i];
     L.push([
       ra.t,
-      ra.ef[0], ra.el[0], ra.aw, ra.aq, ra.ut,
-      rb.ef[0], rb.el[0],
-      rb.ef[1] ?? "", rb.el[1] ?? "",
+      ra.ef[0], ra.ed ? ra.ed[0] : "", ra.el[0], ra.aw, ra.aq, ra.ut,
+      rb.ef[0], rb.ed ? rb.ed[0] : "", rb.el[0],
+      rb.ef[1] ?? "", rb.ed ? (rb.ed[1] ?? "") : "", rb.el[1] ?? "",
       rb.aw, rb.aq, rb.ut,
     ].join(","));
   }
 
   const blob = new Blob([L.join("\n")], { type: "text/csv" });
-  const url  = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(blob);
   const a_el = Object.assign(document.createElement("a"), {
     href: url, download: `elevasim_${p.floors}fl_${p.arrival}pax.csv`
   });
@@ -481,5 +511,8 @@ function downloadCSV() {
 window.addEventListener("load", () => {
   buildViz("buildA", 1);
   buildViz("buildB", 2);
+  setControlsLocked(false);
   $("btnRun").onclick = runSimulation;
 });
+
+
