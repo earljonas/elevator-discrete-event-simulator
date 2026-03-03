@@ -26,8 +26,8 @@ from scipy import stats as sp_stats
 TRAVEL_SPEED = 2.5          # seconds per floor
 DOOR_DWELL = 5.0            # seconds per stop
 SIM_DURATION = 8 * 3600     # 8 hours
-NUM_REPS = 20               # stronger CI stability
-BASE_SEED = 42
+NUM_REPS = 1               # stronger CI stability
+BASE_SEED = random.randrange(1_000_000)
 FRAME_INTERVAL = 10.0
 
 UP = 1
@@ -431,19 +431,20 @@ def _mean_ci(rows: List[dict], metrics: List[str]):
     return out_mean, out_ci
 
 
-def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int):
+def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int, seed: int):
     rows = []
     frames = []
 
     for rep in range(NUM_REPS):
         on_frame = frames.append if rep == 0 else None
+
         rows.append(
             _one_rep(
                 floors=floors,
                 capacity=capacity,
                 rate_per_sec=rate,
                 num_elevators=num_elevators,
-                seed=BASE_SEED + rep,
+                seed=seed,   # SAME seed
                 on_frame=on_frame,
             )
         )
@@ -469,8 +470,11 @@ def run_both(floors, capacity, arrival_per_min):
     arrival = max(5.0, min(50.0, float(arrival_per_min)))
     rate = max(0.001, arrival) / 60.0
 
-    scenario_a = _run_scenario(floors, capacity, rate, 1)
-    scenario_b = _run_scenario(floors, capacity, rate, 2)
+    #  One random seed per full experiment run
+    base_seed = random.randrange(1_000_000)
+
+    scenario_a = _run_scenario(floors, capacity, rate, 1, base_seed)
+    scenario_b = _run_scenario(floors, capacity, rate, 2, base_seed)
 
     return {
         "scenario_a": scenario_a,

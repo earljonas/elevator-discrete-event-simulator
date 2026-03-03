@@ -298,7 +298,7 @@ function showResults() {
     <div class="rp-header">
       <div>
         <div class="rp-title">Simulation Results</div>
-        <div class="rp-sub">M/D/c - ${p.floors} floors - λ=${p.arrival} pax/min - ${p.duration_hr}h - ${p.reps} reps</div>
+        <div class="rp-sub">${p.floors} floors - λ=${p.arrival} pax/min - ${p.duration_hr}h </div>
       </div>
       <div class="rp-actions">
         <button class="btn-csv" onclick="downloadCSV()">CSV</button>
@@ -309,9 +309,7 @@ function showResults() {
     <table class="rtable">
       <thead><tr><th>Metric</th><th class="th-a">A - 1 Elevator</th><th class="th-b">B - 2 Elevators</th></tr></thead>
       <tbody>
-        ${row("Avg Wait (served)", fmtWait(a.avg_wait_served), fmtWait(b.avg_wait_served), a.avg_wait_served, b.avg_wait_served, true)}
-        ${row("Avg Wait (backlog)", fmtWait(a.avg_wait_backlog), fmtWait(b.avg_wait_backlog), a.avg_wait_backlog, b.avg_wait_backlog, true)}
-        ${row("Max Wait", fmtWait(a.max_wait), fmtWait(b.max_wait), a.max_wait, b.max_wait, true)}
+        ${row("Avg Wait", fmtWait(a.avg_wait_served), fmtWait(b.avg_wait_served), a.avg_wait_served, b.avg_wait_served, true)}
         ${row("Avg Queue", fmtQueue(a.avg_queue) + " pax", fmtQueue(b.avg_queue) + " pax", a.avg_queue, b.avg_queue, true)}
         ${row("Utilization", fmtPct(a.utilization), fmtPct(b.utilization), a.utilization, b.utilization, false)}
         ${row("Passengers Served", a.passengers_served, b.passengers_served, a.passengers_served, b.passengers_served, false)}
