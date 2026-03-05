@@ -444,7 +444,7 @@ def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int, s
                 capacity=capacity,
                 rate_per_sec=rate,
                 num_elevators=num_elevators,
-                seed=seed,   # SAME seed
+                seed=seed, 
                 on_frame=on_frame,
             )
         )
