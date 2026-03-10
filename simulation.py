@@ -1,6 +1,4 @@
 """
-simulation.py - M/D/c Queue Elevator Simulation
-
 Model:
   M arrivals (Poisson)
   D service times (deterministic travel + dwell)
@@ -375,12 +373,12 @@ def _one_rep(
                     "el": [len(e.riders) for e in all_elevators],
                     "ql": ql,
                     # UI compatibility
-                    "aw": round(stats.avg_wait_served(), 1),
-                    "aq": round(stats.avg_queue_time_weighted(now), 2),
+                    "aw": stats.avg_wait_served(),
+                    "aq": stats.avg_queue_time_weighted(now),
                     "ut": round(avg_util, 1),
                     "ps": int(stats.served_count),
                     # Extended live metrics
-                    "awb": round(stats.avg_wait_backlog(now), 1),
+                    "awb": stats.avg_wait_backlog(now),
                 }
             )
 
@@ -393,12 +391,12 @@ def _one_rep(
 
     # Keep unclipped utilization; tests should detect if model exceeds 100 materially.
     return {
-        "avg_wait": round(stats.avg_wait_served(), 2),
-        "avg_wait_served": round(stats.avg_wait_served(), 2),
-        "avg_wait_backlog": round(stats.avg_wait_backlog(SIM_DURATION), 2),
-        "max_wait": round(stats.wait_max, 2),
-        "max_wait_served": round(stats.wait_max, 2),
-        "avg_queue": round(stats.avg_queue_time_weighted(SIM_DURATION), 2),
+        "avg_wait": stats.avg_wait_served(),
+        "avg_wait_served": stats.avg_wait_served(),
+        "avg_wait_backlog": stats.avg_wait_backlog(SIM_DURATION),
+        "max_wait": stats.wait_max,
+        "max_wait_served": stats.wait_max,
+        "avg_queue": stats.avg_queue_time_weighted(SIM_DURATION),
         "utilization": round(avg_util, 2),
         "passengers_served": int(stats.served_count),
     }

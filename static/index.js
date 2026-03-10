@@ -49,11 +49,7 @@ function setClock(hours) {
 
 function fmtWait(seconds) {
   if (seconds <= 0) return "0 s";
-  if (seconds < 60) return seconds.toFixed(1) + " s";
-  if (seconds < 3600) return (seconds / 60).toFixed(1) + " min";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.round((seconds % 3600) / 60);
-  return h + "h " + m + "m";
+  return seconds.toFixed(1) + " s";
 }
 
 function fmtQueue(val) {
