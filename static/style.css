@@ -535,6 +535,10 @@ input[type=range]:disabled::-webkit-slider-thumb {
   background: var(--green);
 }
 
+.kpi-served::before {
+  background: var(--accent);
+}
+
 .kpi-name {
   font-family: var(--mono);
   font-size: 8px;

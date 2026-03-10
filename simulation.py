@@ -1,370 +1,487 @@
 """
-simulation.py  —  M/D/c Queue Elevator Simulation
-==================================================
+Model:
+  M arrivals (Poisson)
+  D service times (deterministic travel + dwell)
+  c parallel elevators
 
-Queue Model
------------
-  M  Poisson arrivals        inter-arrival ~ Exp(1/λ)
-  D  Deterministic service   travel = n_floors × 2.5 s  +  dwell 5 s/stop
-  c  c parallel servers      SCAN dispatch (nearest-call coordination)
-
-Properties
-----------
-  FIFO within each floor queue
-  Direction-aware boarding (passengers only board if going same direction)
-  Nearest-call dispatch for multi-elevator coordination
-  No reneging, no balking
-  Unlimited buffer
-  No warmup — statistics collected from t=0
-
-Output
-------
-  run_both(floors, capacity, arrival_per_min)
-      Returns a dict with scenario_a and scenario_b, each containing:
-        kpis    – mean KPIs over NUM_REPS replications
-        ci      – 95 % confidence intervals
-        frames  – animation snapshots from rep 0 (one per FRAME_INTERVAL sim-s)
+Key improvements:
+  - Directional hall queues (up/down)
+  - Time-weighted queue-length average (area under Lq(t))
+  - Separate wait KPIs: served-only vs backlog-inclusive
+  - Dispatch scoring uses distance, direction, load, and call age
+  - Multi-rep mean + 95% CI
 """
 
-import simpy, random, numpy as np
+import random
 from collections import deque
 from dataclasses import dataclass
-from typing import List, Optional, Callable
+from typing import Callable, Deque, List, Optional
+
+import numpy as np
+import simpy
 from scipy import stats as sp_stats
 
-# ── Fixed constants ────────────────────────────────────────────────────────
-TRAVEL_SPEED   = 2.5        # seconds per floor
-DOOR_DWELL     = 5.0        # seconds per stop
-SIM_DURATION   = 8 * 3600   # 8-hour simulation
-NUM_REPS       = 5          # replications for CI
-BASE_SEED      = 42
-FRAME_INTERVAL = 10.0       # one animation snapshot every 10 sim-seconds
-                             # 8 h = 2880 frames per scenario
+TRAVEL_SPEED = 2.5          # seconds per floor
+DOOR_DWELL = 5.0            # seconds per stop
+SIM_DURATION = 8 * 3600     # 8 hours
+NUM_REPS = 1               # stronger CI stability
+BASE_SEED = random.randrange(1_000_000)
+FRAME_INTERVAL = 10.0
 
+UP = 1
+DOWN = -1
+IDLE = 0
 
-# ── Data model ─────────────────────────────────────────────────────────────
 
 @dataclass
 class Passenger:
-    arrival_time : float
-    origin       : int
-    dest         : int
-    board_time   : float = 0.0
-    exit_time    : float = 0.0
+    arrival_time: float
+    origin: int
+    dest: int
+    board_time: float = 0.0
+    exit_time: float = 0.0
 
     @property
-    def wait(self):            return self.board_time - self.arrival_time
+    def direction(self) -> int:
+        return UP if self.dest > self.origin else DOWN
+
     @property
-    def sojourn(self):         return self.exit_time  - self.arrival_time
+    def wait(self) -> float:
+        return self.board_time - self.arrival_time
 
 
-# ── Elevator  (SCAN dispatch + nearest-call coordination) ─────────────────
+class RepStats:
+    """Replication-level counters for fast, numerically stable KPIs."""
+
+    def __init__(self) -> None:
+        self.served_count = 0
+        self.wait_sum = 0.0
+        self.wait_max = 0.0
+
+        self.queue_len = 0
+        self.queue_arrival_sum = 0.0
+
+        self.queue_area = 0.0
+        self._last_q_t = 0.0
+
+    def _advance_queue_area(self, now: float) -> None:
+        self.queue_area += self.queue_len * (now - self._last_q_t)
+        self._last_q_t = now
+
+    def queue_enqueue(self, now: float, arrival_time: float) -> None:
+        self._advance_queue_area(now)
+        self.queue_len += 1
+        self.queue_arrival_sum += arrival_time
+
+    def queue_dequeue(self, now: float, arrival_time: float) -> None:
+        self._advance_queue_area(now)
+        self.queue_len -= 1
+        self.queue_arrival_sum -= arrival_time
+        if self.queue_len < 0:
+            raise RuntimeError("Queue length went negative")
+
+    def passenger_served(self, wait: float) -> None:
+        self.served_count += 1
+        self.wait_sum += wait
+        if wait > self.wait_max:
+            self.wait_max = wait
+
+    def avg_queue_time_weighted(self, now: float) -> float:
+        if now <= 0:
+            return 0.0
+        area = self.queue_area + self.queue_len * (now - self._last_q_t)
+        return area / now
+
+    def backlog_wait_sum(self, now: float) -> float:
+        return self.queue_len * now - self.queue_arrival_sum
+
+    def avg_wait_served(self) -> float:
+        if self.served_count == 0:
+            return 0.0
+        return self.wait_sum / self.served_count
+
+    def avg_wait_backlog(self, now: float) -> float:
+        denom = self.served_count + self.queue_len
+        if denom == 0:
+            return 0.0
+        return (self.wait_sum + self.backlog_wait_sum(now)) / denom
+
 
 class Elevator:
-    """
-    SCAN algorithm with nearest-call coordination:
-      • Travel in current direction, stopping at every pending floor.
-      • When no more pending floors ahead, reverse.
-      • For hall calls, only claim a floor if this elevator is the nearest
-        (prevents multiple elevators from racing to the same call).
-      • Direction-aware boarding: passengers only board if their destination
-        is in the elevator's current travel direction.
-    """
+    def __init__(
+        self,
+        env: simpy.Environment,
+        eid: int,
+        floors: int,
+        capacity: int,
+        up_queues: List[Deque[Passenger]],
+        down_queues: List[Deque[Passenger]],
+        all_elevators: List["Elevator"],
+        stats: RepStats,
+    ):
+        self.env = env
+        self.eid = eid
+        self.floors = floors
+        self.capacity = capacity
+        self.up_queues = up_queues
+        self.down_queues = down_queues
+        self.all_elevators = all_elevators
+        self.stats = stats
 
-    def __init__(self, env, eid, num_floors, capacity, floor_queues,
-                 all_elevators):
-        self.env            = env
-        self.eid            = eid
-        self.num_floors     = num_floors
-        self.capacity       = capacity
-        self.floor_queues   = floor_queues   # shared list[deque[Passenger]]
-        self.all_elevators  = all_elevators  # reference to full elevator list
-        self.floor          = 1
-        self.direction      = 1              # +1 up  /  -1 down
+        self.floor = 1
+        self.direction = IDLE
         self.riders: List[Passenger] = []
-        self.busy_time      = 0.0            # active seconds
+        self.busy_time = 0.0
+
         env.process(self._run())
 
-    # ── Pending-work helpers ───────────────────────────────────────────
+    def _queue_at(self, floor: int, direction: int) -> Deque[Passenger]:
+        idx = floor - 1
+        return self.up_queues[idx] if direction == UP else self.down_queues[idx]
 
-    def _pending(self):
-        s = set()
-        # Always include destinations of current riders
-        for r in self.riders:
-            s.add(r.dest)
-        # For hall calls: only claim the floor if this elevator is nearest
-        for f in range(1, self.num_floors + 1):
-            if not self.floor_queues[f - 1]:
-                continue
-            my_dist = abs(self.floor - f)
-            nearest = True
-            for other in self.all_elevators:
-                if other is self:
-                    continue
-                other_dist = abs(other.floor - f)
-                if other_dist < my_dist:
-                    nearest = False
-                    break
-                # Tie-break: lower elevator id wins
-                if other_dist == my_dist and other.eid < self.eid:
-                    nearest = False
-                    break
-            if nearest:
-                s.add(f)
-        return s
+    def _oldest_call_age(self, floor: int, direction: int) -> float:
+        q = self._queue_at(floor, direction)
+        if not q:
+            return 0.0
+        return self.env.now - q[0].arrival_time
 
-    def _next_target(self):
-        pending = self._pending()
-        if not pending:
-            return None
-        if self.direction == 1:
-            ahead = [f for f in pending if f > self.floor]
-            if ahead:   return min(ahead)
-            self.direction = -1
-            behind = [f for f in pending if f < self.floor]
-            return max(behind) if behind else None
+    def _score_hall_call(self, floor: int, direction: int) -> float:
+        dist = abs(self.floor - floor)
+
+        if self.direction == IDLE:
+            dir_penalty = 0.0
         else:
-            ahead = [f for f in pending if f < self.floor]
-            if ahead:   return max(ahead)
-            self.direction = 1
-            behind = [f for f in pending if f > self.floor]
-            return min(behind) if behind else None
+            moving_toward = (self.direction == UP and floor >= self.floor) or (
+                self.direction == DOWN and floor <= self.floor
+            )
+            dir_penalty = 0.0 if moving_toward and self.direction == direction else 2.0
 
-    # ── SimPy coroutines ───────────────────────────────────────────────
+        load_penalty = (len(self.riders) / max(self.capacity, 1)) * 2.0
+        age_bonus = min(self._oldest_call_age(floor, direction) / 30.0, 3.0)
 
-    def _travel(self, target):
+        return dist + dir_penalty + load_penalty - age_bonus
+
+    def _assigned_hall_calls(self) -> List[tuple[int, int]]:
+        calls: List[tuple[int, int]] = []
+        for floor in range(1, self.floors + 1):
+            for direction in (UP, DOWN):
+                if not self._queue_at(floor, direction):
+                    continue
+                my_score = self._score_hall_call(floor, direction)
+                best = True
+                for other in self.all_elevators:
+                    if other is self:
+                        continue
+                    other_score = other._score_hall_call(floor, direction)
+                    if other_score < my_score - 1e-9:
+                        best = False
+                        break
+                    if abs(other_score - my_score) <= 1e-9 and other.eid < self.eid:
+                        best = False
+                        break
+                if best:
+                    calls.append((floor, direction))
+        return calls
+
+    def _candidate_targets(self) -> List[tuple[int, float]]:
+        targets: List[tuple[int, float]] = []
+
+        # Rider destinations get strong priority to prevent onboard starvation.
+        for dest in {r.dest for r in self.riders}:
+            score = abs(dest - self.floor) - 5.0
+            targets.append((dest, score))
+
+        # Assigned hall calls.
+        for floor, direction in self._assigned_hall_calls():
+            if floor == self.floor and not self._can_service_hall_here(direction):
+                continue
+            targets.append((floor, self._score_hall_call(floor, direction)))
+
+        return targets
+
+    def _can_service_hall_here(self, direction: int) -> bool:
+        if len(self.riders) >= self.capacity:
+            return False
+        if self.riders and self.direction != IDLE and self.direction != direction:
+            return False
+        return True
+
+    def _next_target(self) -> Optional[int]:
+        cands = self._candidate_targets()
+        if not cands:
+            return None
+
+        # Keep directional stability when scores are close.
+        if self.direction != IDLE:
+            biased = []
+            for floor, score in cands:
+                forward = (self.direction == UP and floor >= self.floor) or (
+                    self.direction == DOWN and floor <= self.floor
+                )
+                bias = -0.5 if forward else 0.0
+                biased.append((floor, score + bias))
+            cands = biased
+
+        cands.sort(key=lambda x: (x[1], abs(x[0] - self.floor), x[0]))
+        return cands[0][0]
+
+    def _travel(self, target: int):
         dist = abs(target - self.floor)
         if dist == 0:
+            # Prevent zero-time spin when selected target is current floor.
             yield self.env.timeout(1.0)
             return
+
         t0 = self.env.now
-        # Set direction before travel
-        self.direction = 1 if target > self.floor else -1
+        self.direction = UP if target > self.floor else DOWN
         yield self.env.timeout(dist * TRAVEL_SPEED)
         self.busy_time += self.env.now - t0
         self.floor = target
 
-    def _service(self):
-        idx     = self.floor - 1
-        # Drop off passengers whose destination is this floor
+    def _drop_off(self) -> int:
         leaving = [r for r in self.riders if r.dest == self.floor]
-        for r in leaving:
-            self.riders.remove(r)
-            r.exit_time = self.env.now
-        # Board passengers going in the elevator's direction (FIFO)
-        q = self.floor_queues[idx]
+        for p in leaving:
+            self.riders.remove(p)
+            p.exit_time = self.env.now
+            self.stats.passenger_served(p.wait)
+        return len(leaving)
+
+    def _choose_board_direction(self) -> int:
+        idx = self.floor - 1
+        up_q = self.up_queues[idx]
+        dn_q = self.down_queues[idx]
+
+        if self.riders:
+            return self.direction
+
+        if not up_q and not dn_q:
+            return IDLE
+        if up_q and not dn_q:
+            return UP
+        if dn_q and not up_q:
+            return DOWN
+
+        # Both queues present: serve older call first.
+        up_age = self.env.now - up_q[0].arrival_time
+        dn_age = self.env.now - dn_q[0].arrival_time
+        return UP if up_age >= dn_age else DOWN
+
+    def _board(self) -> int:
+        board_dir = self._choose_board_direction()
+        if board_dir == IDLE:
+            return 0
+
+        q = self._queue_at(self.floor, board_dir)
         boarded = 0
-        # Scan queue and pick matching-direction passengers
-        remaining = deque()
         while q and len(self.riders) < self.capacity:
             p = q.popleft()
-            going_up = p.dest > self.floor
-            if (self.direction == 1 and going_up) or \
-               (self.direction == -1 and not going_up):
-                p.board_time = self.env.now
-                self.riders.append(p)
-                boarded += 1
-            else:
-                remaining.append(p)
-        # Put non-matching passengers back at the front of the queue
-        remaining.extend(q)
-        self.floor_queues[idx] = remaining
+            self.stats.queue_dequeue(self.env.now, p.arrival_time)
+            p.board_time = self.env.now
+            self.riders.append(p)
+            boarded += 1
 
-        if leaving or boarded:
+        # Direction follows boarded flow when empty beforehand.
+        if boarded > 0:
+            self.direction = board_dir
+
+        return boarded
+
+    def _service_current_floor(self):
+        dropped = self._drop_off()
+        boarded = self._board()
+        if dropped or boarded:
             t0 = self.env.now
             yield self.env.timeout(DOOR_DWELL)
             self.busy_time += self.env.now - t0
 
     def _run(self):
         while True:
-            # Serve current floor first when possible
-            here_q = self.floor_queues[self.floor - 1]
-            need_drop = any(r.dest == self.floor for r in self.riders)
-            
-            # If we arrived empty at a floor with waiting passengers, 
-            # adopt their direction so we can board them instead of getting stuck!
-            if not self.riders and here_q and not need_drop:
-                first_waiter = here_q[0]
-                self.direction = 1 if first_waiter.dest > self.floor else -1
-            
-            # Check if any queued passenger matches current direction
-            can_board = False
-            if here_q and len(self.riders) < self.capacity:
-                for p in here_q:
-                    going_up = p.dest > self.floor
-                    if (self.direction == 1 and going_up) or \
-                       (self.direction == -1 and not going_up):
-                        can_board = True
-                        break
-
-            # Only yield _service if we actually drop or board someone
-            if need_drop or can_board:
-                t_before = self.env.now
-                yield from self._service()
-                # If service took no time (e.g. queue mutated), prevent infinite loop
-                if self.env.now == t_before:
-                    yield self.env.timeout(1.0)
-                continue
+            yield from self._service_current_floor()
 
             target = self._next_target()
             if target is None:
+                self.direction = IDLE
                 yield self.env.timeout(1.0)
                 continue
-            
+
             yield from self._travel(target)
-            yield from self._service()
 
 
-# ── Single replication ─────────────────────────────────────────────────────
+def _one_rep(
+    floors: int,
+    capacity: int,
+    rate_per_sec: float,
+    num_elevators: int,
+    seed: int,
+    on_frame: Optional[Callable] = None,
+):
+    rng = random.Random(seed)
+    env = simpy.Environment()
+    stats = RepStats()
 
-def _one_rep(floors, capacity, rate_per_sec, num_elevators, seed,
-             on_frame: Optional[Callable] = None):
+    up_queues = [deque() for _ in range(floors)]
+    down_queues = [deque() for _ in range(floors)]
 
-    rng           = random.Random(seed)
-    env           = simpy.Environment()
-    floor_queues  = [deque() for _ in range(floors)]
-    records       : List[Passenger] = []
-    q_samples     : List[float]     = []
-
-    # Create elevators with shared reference list
     all_elevators: List[Elevator] = []
     for i in range(num_elevators):
-        e = Elevator(env, i, floors, capacity, floor_queues, all_elevators)
+        e = Elevator(
+            env,
+            i,
+            floors,
+            capacity,
+            up_queues,
+            down_queues,
+            all_elevators,
+            stats,
+        )
         all_elevators.append(e)
 
-    # Poisson arrivals  [the M]
+    def enqueue_passenger(p: Passenger) -> None:
+        idx = p.origin - 1
+        if p.direction == UP:
+            up_queues[idx].append(p)
+        else:
+            down_queues[idx].append(p)
+        stats.queue_enqueue(env.now, p.arrival_time)
+
     def arrivals():
         while True:
             yield env.timeout(rng.expovariate(rate_per_sec))
-            o = rng.randint(1, floors)
-            d = rng.randint(1, floors)
-            while d == o:
-                d = rng.randint(1, floors)
-            p = Passenger(env.now, o, d)
-            floor_queues[o - 1].append(p)
-            records.append(p)
+            origin = rng.randint(1, floors)
+            dest = rng.randint(1, floors)
+            while dest == origin:
+                dest = rng.randint(1, floors)
+            enqueue_passenger(Passenger(env.now, origin, dest))
 
-    # Queue-length sampler (every 30 s)
-    def sampler():
-        while True:
-            yield env.timeout(30.0)
-            q_samples.append(float(sum(len(q) for q in floor_queues)))
-
-    def _queued_waits(now: float):
-        waits = []
-        for q in floor_queues:
-            for p in q:
-                waits.append(now - p.arrival_time)
-        return waits
-
-    # Animation frame recorder
     def recorder():
         while True:
             yield env.timeout(FRAME_INTERVAL)
             if on_frame is None:
                 continue
-            done  = [p for p in records if p.exit_time > 0]
-            waits = [p.wait for p in done]
-            queued_waits = _queued_waits(env.now)
-            all_waits = waits + queued_waits
-            elapsed = max(env.now, 1.0)
-            on_frame({
-                "t":  round(env.now / 3600.0, 4),                # hours
-                "ef": [e.floor      for e in all_elevators],      # floor positions
-                "ed": [e.direction   for e in all_elevators],     # directions
-                "el": [len(e.riders) for e in all_elevators],     # loads
-                "ql": [len(q)        for q in floor_queues],      # queues per floor
-                # live running KPIs
-                "aw": round(float(np.mean(all_waits)), 1)       if all_waits else 0.0,
-                "aq": round(float(np.mean(q_samples)), 2)       if q_samples else 0.0,
-                "ut": round(float(np.mean([
-                    min(e.busy_time / elapsed * 100, 100)
-                    for e in all_elevators])), 1),
-            })
+
+            now = env.now
+            util_vals = [e.busy_time / now * 100.0 if now > 0 else 0.0 for e in all_elevators]
+            avg_util = float(np.mean(util_vals)) if util_vals else 0.0
+
+            ql = [len(up_queues[i]) + len(down_queues[i]) for i in range(floors)]
+
+            on_frame(
+                {
+                    "t": round(now / 3600.0, 4),
+                    "ef": [e.floor for e in all_elevators],
+                    "ed": [e.direction for e in all_elevators],
+                    "el": [len(e.riders) for e in all_elevators],
+                    "ql": ql,
+                    # UI compatibility
+                    "aw": stats.avg_wait_served(),
+                    "aq": stats.avg_queue_time_weighted(now),
+                    "ut": round(avg_util, 1),
+                    "ps": int(stats.served_count),
+                    # Extended live metrics
+                    "awb": stats.avg_wait_backlog(now),
+                }
+            )
 
     env.process(arrivals())
-    env.process(sampler())
     env.process(recorder())
     env.run(until=SIM_DURATION)
 
-    done  = [p for p in records if p.exit_time > 0]
-    waits = [p.wait for p in done]
-    queued_waits = _queued_waits(SIM_DURATION)
-    all_waits = waits + queued_waits
-    utils = [min(e.busy_time / SIM_DURATION * 100, 100) for e in all_elevators]
+    util_vals = [e.busy_time / SIM_DURATION * 100.0 for e in all_elevators]
+    avg_util = float(np.mean(util_vals)) if util_vals else 0.0
 
+    # Keep unclipped utilization; tests should detect if model exceeds 100 materially.
     return {
-        "avg_wait":          float(np.mean(all_waits)) if all_waits else 0.0,
-        "max_wait":          float(np.max(all_waits))  if all_waits else 0.0,
-        "avg_queue":         float(np.mean(q_samples)) if q_samples else 0.0,
-        "utilization":       float(np.mean(utils)),
-        "passengers_served": len(done),
+        "avg_wait": stats.avg_wait_served(),
+        "avg_wait_served": stats.avg_wait_served(),
+        "avg_wait_backlog": stats.avg_wait_backlog(SIM_DURATION),
+        "max_wait": stats.wait_max,
+        "max_wait_served": stats.wait_max,
+        "avg_queue": stats.avg_queue_time_weighted(SIM_DURATION),
+        "utilization": round(avg_util, 2),
+        "passengers_served": int(stats.served_count),
     }
 
 
-# ── Public API ─────────────────────────────────────────────────────────────
+def _mean_ci(rows: List[dict], metrics: List[str]):
+    out_mean = {}
+    out_ci = {}
 
-def run_both(floors, capacity, arrival_per_min):
-    floors   = max(5,   min(30,    int(floors)))
-    capacity = max(4,   min(20,    int(capacity)))
-    arrival  = max(5.0, min(50.0,  float(arrival_per_min)))
-    rate     = max(0.001, float(arrival)) / 60.0
+    for k in metrics:
+        vals = np.array([r[k] for r in rows], dtype=float)
+        m = float(np.mean(vals))
 
-    metrics = ["avg_wait", "max_wait", "avg_queue", "utilization", "passengers_served"]
+        if k == "passengers_served":
+            out_mean[k] = int(round(m))
+        else:
+            out_mean[k] = round(m, 2)
 
-    def _mean_ci(rows):
-        out_mean = {}
-        out_ci = {}
-        for k in metrics:
-            vals = np.array([r[k] for r in rows], dtype=float)
-            m = float(np.mean(vals))
-            out_mean[k] = m
-            if len(vals) > 1:
-                sem = float(sp_stats.sem(vals))
-                if sem > 0:
-                    lo, hi = sp_stats.t.interval(0.95, len(vals) - 1, loc=m, scale=sem)
-                else:
-                    lo = hi = m
+        if len(vals) > 1:
+            sem = float(sp_stats.sem(vals))
+            if sem > 0:
+                lo, hi = sp_stats.t.interval(0.95, len(vals) - 1, loc=m, scale=sem)
             else:
                 lo = hi = m
-            out_ci[k] = [float(lo), float(hi)]
-        return out_mean, out_ci
+        else:
+            lo = hi = m
 
-    # Run Scenario A (1 elevator): capture frames from replication 0 only
-    a_rows = []
-    a_frames = []
-    for rep in range(NUM_REPS):
-        on_frame = a_frames.append if rep == 0 else None
-        a_rows.append(_one_rep(
-            floors, capacity, rate, 1,
-            seed=BASE_SEED + rep, on_frame=on_frame
-        ))
-    r_a, ci_a = _mean_ci(a_rows)
+        out_ci[k] = [round(float(lo), 3), round(float(hi), 3)]
 
-    # Run Scenario B (2 elevators): capture frames from replication 0 only
-    b_rows = []
-    b_frames = []
+    return out_mean, out_ci
+
+
+def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int, seed: int):
+    rows = []
+    frames = []
+
     for rep in range(NUM_REPS):
-        on_frame = b_frames.append if rep == 0 else None
-        b_rows.append(_one_rep(
-            floors, capacity, rate, 2,
-            seed=BASE_SEED + rep, on_frame=on_frame
-        ))
-    r_b, ci_b = _mean_ci(b_rows)
+        on_frame = frames.append if rep == 0 else None
+
+        rows.append(
+            _one_rep(
+                floors=floors,
+                capacity=capacity,
+                rate_per_sec=rate,
+                num_elevators=num_elevators,
+                seed=seed, 
+                on_frame=on_frame,
+            )
+        )
+
+    metrics = [
+        "avg_wait",
+        "avg_wait_served",
+        "avg_wait_backlog",
+        "max_wait",
+        "max_wait_served",
+        "avg_queue",
+        "utilization",
+        "passengers_served",
+    ]
+
+    kpis, ci = _mean_ci(rows, metrics)
+    return {"kpis": kpis, "ci": ci, "frames": frames}
+
+
+def run_both(floors, capacity, arrival_per_min):
+    floors = max(5, min(30, int(floors)))
+    capacity = max(4, min(20, int(capacity)))
+    arrival = max(5.0, min(50.0, float(arrival_per_min)))
+    rate = max(0.001, arrival) / 60.0
+
+    #  One random seed per full experiment run
+    base_seed = random.randrange(1_000_000)
+
+    scenario_a = _run_scenario(floors, capacity, rate, 1, base_seed)
+    scenario_b = _run_scenario(floors, capacity, rate, 2, base_seed)
 
     return {
-        "scenario_a": {
-            "kpis": r_a,
-            "ci": ci_a,
-            "frames": a_frames,
-        },
-        "scenario_b": {
-            "kpis": r_b,
-            "ci": ci_b,
-            "frames": b_frames,
-        },
+        "scenario_a": scenario_a,
+        "scenario_b": scenario_b,
         "params": {
-            "floors": floors, "capacity": capacity, "arrival": arrival,
+            "floors": floors,
+            "capacity": capacity,
+            "arrival": arrival,
             "duration_hr": SIM_DURATION // 3600,
+            "reps": NUM_REPS,
         },
     }

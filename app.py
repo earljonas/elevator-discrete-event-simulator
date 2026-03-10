@@ -5,7 +5,7 @@ GET  /     → index.html
 POST /run  → run simulation, return JSON
 
 The "live animation" happens entirely in the browser.
-SimPy finishes in ~5-15 seconds, returns 480 frames per scenario,
+SimPy finishes in ~5-20 seconds, returns ~2880 frames per scenario,
 JS plays them back at the user's chosen speed.
 """
 
