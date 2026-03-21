@@ -20,32 +20,32 @@ const P = {
 // base interval between frames — actual speed is MS_PER_FRAME / G.speed
 const MS_PER_FRAME = 80;
 
-function $(id) { return document.getElementById(id); }
+function el(id) { return document.getElementById(id); }
 
 function onSlider(valId, val, suffix) {
-  $(valId).textContent = val + suffix;
+  el(valId).textContent = val + suffix;
 }
 
-function setStatus(msg) { $("statusMsg").textContent = msg; }
+function setStatus(msg) { el("statusMsg").textContent = msg; }
 
 function setControlsLocked(locked) {
   ["slFloors", "slCap", "slRate"].forEach((id) => {
-    const el = $(id);
-    if (el) el.disabled = locked;
+    const e = el(id);
+    if (e) e.disabled = locked;
   });
-  const speed = $("slSpeed");
+  const speed = el("slSpeed");
   if (speed) speed.disabled = false;
 }
 
 function setProgress(pct) {
-  $("progFill").style.width = Math.min(pct, 100) + "%";
-  $("progPct").textContent = pct > 0 ? Math.round(pct) + "%" : "";
+  el("progFill").style.width = Math.min(pct, 100) + "%";
+  el("progPct").textContent = pct > 0 ? Math.round(pct) + "%" : "";
 }
 
 function setClock(hours) {
   const h = Math.floor(hours);
   const m = Math.floor((hours % 1) * 60);
-  $("simClock").textContent = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  el("simClock").textContent = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
 }
 
 function fmtWait(seconds) {
@@ -64,18 +64,18 @@ function fmtPct(val) {
 }
 
 function setKpi(id, value) {
-  const el = $(id);
-  if (!el) return;
-  el.classList.remove("empty");
-  el.textContent = value;
+  const e = el(id);
+  if (!e) return;
+  e.classList.remove("empty");
+  e.textContent = value;
 }
 
 function clearKpis() {
-  ["kw-a", "kq-a", "ku-a", "ks-a", "kw-b", "kq-b", "ku-b", "ks-b"].forEach((id) => {
-    const el = $(id);
-    if (!el) return;
-    el.classList.add("empty");
-    el.textContent = "-";
+  ["kw-a", "kq-a", "ks-a", "kw-b", "kq-b", "ks-b"].forEach((id) => {
+    const e = el(id);
+    if (!e) return;
+    e.classList.add("empty");
+    e.textContent = "-";
   });
 }
 
@@ -86,14 +86,14 @@ function ce(tag, cls) {
 }
 
 function rebuildViz() {
-  G.floors = +$("slFloors").value;
-  G.capacity = +$("slCap").value;
+  G.floors = +el("slFloors").value;
+  G.capacity = +el("slCap").value;
   buildViz("buildA", 1);
   buildViz("buildB", 2);
 }
 
 function buildViz(wrapperId, numElevators) {
-  const wrap = $(wrapperId);
+  const wrap = el(wrapperId);
   if (!wrap) return;
   wrap.innerHTML = "";
 
@@ -154,8 +154,8 @@ function buildViz(wrapperId, numElevators) {
 }
 
 function moveCar(vizId, shaftIdx, floor, animate) {
-  const car = $(`${vizId}-car-${shaftIdx}`);
-  const shaft = $(`${vizId}-shaft-${shaftIdx}`);
+  const car = el(`${vizId}-car-${shaftIdx}`);
+  const shaft = el(`${vizId}-shaft-${shaftIdx}`);
   if (!car || !shaft) return;
 
   const shaftH = shaft.clientHeight;
@@ -169,37 +169,37 @@ function moveCar(vizId, shaftIdx, floor, animate) {
 }
 
 function setDirection(vizId, shaftIdx, dir) {
-  const el = $(`${vizId}-dir-${shaftIdx}`);
-  if (!el) return;
-  el.textContent = dir === 1 ? "^" : dir === -1 ? "v" : "-";
-  el.className = "car-dir" + (dir === 1 ? " dir-up" : dir === -1 ? " dir-down" : "");
+  const e = el(`${vizId}-dir-${shaftIdx}`);
+  if (!e) return;
+  e.textContent = dir === 1 ? "^" : dir === -1 ? "v" : "-";
+  e.className = "car-dir" + (dir === 1 ? " dir-up" : dir === -1 ? " dir-down" : "");
 }
 
 function setLoad(vizId, shaftIdx, load) {
-  const el = $(`${vizId}-load-${shaftIdx}`);
-  if (!el) return;
-  el.textContent = `${load}/${G.capacity}`;
+  const e = el(`${vizId}-load-${shaftIdx}`);
+  if (!e) return;
+  e.textContent = `${load}/${G.capacity}`;
 }
 
 function drawQueue(vizId, floor, count) {
-  const el = $(`${vizId}-q${floor}`);
-  if (!el) return;
-  el.innerHTML = "";
+  const e = el(`${vizId}-q${floor}`);
+  if (!e) return;
+  e.innerHTML = "";
   if (count === 0) return;
 
   if (count <= 20) {
-    for (let i = 0; i < count; i++) el.appendChild(ce("div", "q-dot"));
+    for (let i = 0; i < count; i++) e.appendChild(ce("div", "q-dot"));
     return;
   }
 
   const bar = ce("div", "q-bar");
   const ratio = Math.min(count / 100, 1);
   bar.style.width = Math.max(ratio * 80, 10) + "%";
-  el.appendChild(bar);
+  e.appendChild(bar);
 
   const lbl = ce("span", "q-count");
   lbl.textContent = count.toLocaleString();
-  el.appendChild(lbl);
+  e.appendChild(lbl);
 }
 
 function drawFrame(framePair, animate) {
@@ -254,24 +254,24 @@ function animLoop(ts) {
   if (P.idx >= P.frames.length - 1) {
     P.running = false;
     G.animId = null;
-    setClock(8);
+    setClock(G.data.params.duration_hr);
     setProgress(100);
     setStatus("Simulation complete");
 
     const ka = G.data.scenario_a.kpis;
     const kb = G.data.scenario_b.kpis;
-    setKpi("kw-a", fmtWait(ka.avg_wait));
+    setKpi("kw-a", fmtWait(ka.avg_wait_served));
     setKpi("kq-a", fmtQueue(ka.avg_queue));
     setKpi("ku-a", fmtPct(ka.utilization));
     setKpi("ks-a", ka.passengers_served.toLocaleString());
 
-    setKpi("kw-b", fmtWait(kb.avg_wait));
+    setKpi("kw-b", fmtWait(kb.avg_wait_served));
     setKpi("kq-b", fmtQueue(kb.avg_queue));
     setKpi("ku-b", fmtPct(kb.utilization));
     setKpi("ks-b", kb.passengers_served.toLocaleString());
 
     showResults();
-    $("btnRun").disabled = false;
+    el("btnRun").disabled = false;
     setControlsLocked(false);
     return;
   }
@@ -280,7 +280,7 @@ function animLoop(ts) {
 }
 
 function showResults() {
-  const panel = $("resultsPanel");
+  const panel = el("resultsPanel");
   const a = G.data.scenario_a.kpis;
   const b = G.data.scenario_b.kpis;
   const p = G.data.params;
@@ -319,7 +319,7 @@ function showResults() {
 }
 
 function hideResults() {
-  const p = $("resultsPanel");
+  const p = el("resultsPanel");
   p.classList.remove("show");
   p.innerHTML = "";
 }
@@ -338,7 +338,7 @@ function tryAgain() {
   setStatus("Set parameters and press Run");
   buildViz("buildA", 1);
   buildViz("buildB", 2);
-  $("btnRun").disabled = false;
+  el("btnRun").disabled = false;
   setControlsLocked(false);
 }
 
@@ -349,10 +349,10 @@ async function runSimulation() {
     G.animId = null;
   }
 
-  G.floors = +$("slFloors").value;
-  G.capacity = +$("slCap").value;
-  G.speed = +$("slSpeed").value;
-  const arrival = +$("slRate").value;
+  G.floors = +el("slFloors").value;
+  G.capacity = +el("slCap").value;
+  G.speed = +el("slSpeed").value;
+  const arrival = +el("slRate").value;
 
   buildViz("buildA", 1);
   buildViz("buildB", 2);
@@ -361,9 +361,9 @@ async function runSimulation() {
   setClock(0);
   setProgress(0);
   setStatus("Computing simulation...");
-  $("btnRun").disabled = true;
+  el("btnRun").disabled = true;
   setControlsLocked(true);
-  $("loadingOverlay").style.display = "flex";
+  el("loadingOverlay").style.display = "flex";
 
   let data;
   try {
@@ -378,14 +378,14 @@ async function runSimulation() {
     }
     data = await res.json();
   } catch (err) {
-    $("loadingOverlay").style.display = "none";
+    el("loadingOverlay").style.display = "none";
     setStatus("X " + err.message);
-    $("btnRun").disabled = false;
+    el("btnRun").disabled = false;
     setControlsLocked(false);
     return;
   }
 
-  $("loadingOverlay").style.display = "none";
+  el("loadingOverlay").style.display = "none";
   G.data = data;
 
   const fa = data.scenario_a.frames;
@@ -400,7 +400,7 @@ async function runSimulation() {
 
   if (n === 0) {
     setStatus("No frames generated. Try a higher arrival rate.");
-    $("btnRun").disabled = false;
+    el("btnRun").disabled = false;
     setControlsLocked(false);
     return;
   }
@@ -428,7 +428,7 @@ function downloadCSV() {
   lines.push("Metric,Scenario A,Scenario B");
   lines.push(`Avg Wait Served (s),${a.avg_wait_served},${b.avg_wait_served}`);
   lines.push(`Avg Wait Backlog (s),${a.avg_wait_backlog},${b.avg_wait_backlog}`);
-  lines.push(`Max Wait (s),${a.max_wait},${b.max_wait}`);
+  lines.push(`Max Wait (s),${a.max_wait_served},${b.max_wait_served}`);
   lines.push(`Avg Queue,${a.avg_queue},${b.avg_queue}`);
   lines.push(`Utilization (%),${a.utilization},${b.utilization}`);
   lines.push(`Passengers Served,${a.passengers_served},${b.passengers_served}`);
@@ -447,5 +447,10 @@ window.addEventListener("load", () => {
   buildViz("buildA", 1);
   buildViz("buildB", 2);
   setControlsLocked(false);
-  $("btnRun").onclick = runSimulation;
+  el("btnRun").onclick = runSimulation;
+
+  el("slFloors").oninput = function () { onSlider("valFloors", this.value, ""); rebuildViz(); };
+  el("slCap").oninput = function () { onSlider("valCap", this.value, " pax"); rebuildViz(); };
+  el("slRate").oninput = function () { onSlider("valRate", this.value, " /min"); };
+  el("slSpeed").oninput = function () { onSlider("valSpeed", this.value, "x"); G.speed = +this.value; };
 });

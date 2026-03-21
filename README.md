@@ -47,8 +47,7 @@ Both use the same random seed, arrival rate, and building parameters. The simula
 ## Tech Stack
 
 - **Backend**: Python, Flask, SimPy, NumPy, SciPy
-- **Frontend**: Vanilla JS, CSS (no frameworks)
-- **Fonts**: IBM Plex Mono, IBM Plex Sans (Google Fonts)
+- **Frontend**: Vanilla JS, CSS
 
 ## Setup
 
@@ -66,12 +65,6 @@ python app.py
 
 Opens at `http://localhost:5000`.
 
-## Tests
-
-```bash
-python -m pytest tests/
-```
-
 ## Project Structure
 
 ```
@@ -82,16 +75,7 @@ python -m pytest tests/
 │   ├── index.js            # Frontend animation and UI logic
 │   └── style.css           # Styles
 ├── templates/
-│   └── index.html          # Single-page HTML template
-└── tests/
-    └── test_simulation_invariants.py
+   └── index.html          # Single-page HTML template
+
 ```
 
-## How It Works
-
-1. User sets parameters and clicks **Run Simulation**.
-2. Flask receives the POST, calls `run_both()` which runs both scenarios sequentially.
-3. Each scenario generates ~2880 frame snapshots (one per 10 simulated seconds over 8 hours).
-4. The full frame data is returned as JSON to the browser.
-5. JS plays back frames at the chosen animation speed, updating elevator positions, queue dots, and live KPI cards.
-6. On completion, a results panel slides up with a comparison table and CSV export.
