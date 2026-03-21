@@ -20,14 +20,14 @@
           <label class="param-label">Floors</label>
           <span class="param-value" id="valFloors">10</span>
         </div>
-        <input type="range" id="slFloors" min="5" max="30" value="10" oninput="onSlider('valFloors',this.value,''); rebuildViz()">
+        <input type="range" id="slFloors" min="5" max="30" value="10">
       </div>
       <div class="param">
         <div class="param-header">
           <label class="param-label">Car Capacity</label>
           <span class="param-value" id="valCap">8 pax</span>
         </div>
-        <input type="range" id="slCap" min="4" max="20" value="8" oninput="onSlider('valCap',this.value,' pax'); rebuildViz()">
+        <input type="range" id="slCap" min="4" max="20" value="8">
       </div>
     </div>
 
@@ -37,7 +37,7 @@
           <label class="param-label">Arrival Rate λ</label>
           <span class="param-value" id="valRate">20/min</span>
         </div>
-        <input type="range" id="slRate" min="5" max="50" value="20" oninput="onSlider('valRate',this.value,' /min')">
+        <input type="range" id="slRate" min="5" max="50" value="20">
         <div class="param-hint">Passengers per minute</div>
       </div>
     </div>
@@ -48,12 +48,12 @@
           <label class="param-label">Animation Speed</label>
           <span class="param-value" id="valSpeed">20x</span>
         </div>
-        <input type="range" id="slSpeed" min="1" max="120" value="20" oninput="onSlider('valSpeed',this.value,'x'); G.speed=+this.value">
+        <input type="range" id="slSpeed" min="1" max="120" value="20">
       </div>
     </div>
 
     <div class="section">
-      <div class="section-title"></div>
+
       <div class="constant"><span>Travel speed</span><span class="constant-val">2.5 s / floor</span></div>
       <div class="constant"><span>Door dwell</span> <span class="constant-val">5.0 s / stop</span></div>
       <div class="constant"><span>Dispatch</span> <span class="constant-val">SCAN</span></div>

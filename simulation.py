@@ -20,8 +20,15 @@ TRAVEL_SPEED = 2.5          # seconds it takes to move one floor
 DOOR_DWELL = 5.0            # seconds doors stay open at each stop
 SIM_DURATION = 8 * 3600     # total sim time: one 8-hour shift
 NUM_REPS = 1                # number of replications per scenario
-BASE_SEED = random.randrange(1_000_000)
 FRAME_INTERVAL = 10.0       # capture a snapshot every 10 sim-seconds for the animation
+
+# dispatch scoring weights (lower total score = higher priority)
+DIR_PENALTY = 2.0           # penalty when elevator is heading away from the call
+LOAD_PENALTY_SCALE = 2.0    # scales with current load ratio (0 to this value)
+AGE_BONUS_CAP = 3.0         # max bonus for long-waiting calls (prevents starvation)
+AGE_BONUS_WINDOW = 30.0     # seconds until age bonus reaches its cap
+RIDER_PRIORITY = -5.0       # score offset for onboard rider destinations
+DIR_BIAS = -0.5             # small bias toward continuing in current direction
 
 UP = 1
 DOWN = -1
@@ -34,7 +41,7 @@ class Passenger:
     origin: int
     dest: int
     board_time: float = 0.0
-    exit_time: float = 0.0
+    exit_time: float = 0.0     # set on drop-off; kept for analysis/extension
 
     @property
     def direction(self) -> int:
@@ -160,11 +167,11 @@ class Elevator:
             moving_toward = (self.direction == UP and floor >= self.floor) or (
                 self.direction == DOWN and floor <= self.floor
             )
-            dir_penalty = 0.0 if moving_toward and self.direction == direction else 2.0
+            dir_penalty = 0.0 if moving_toward and self.direction == direction else DIR_PENALTY
 
-        load_penalty = (len(self.riders) / max(self.capacity, 1)) * 2.0
-        # age bonus grows up to 3.0 — prevents people from waiting forever
-        age_bonus = min(self._oldest_call_age(floor, direction) / 30.0, 3.0)
+        load_penalty = (len(self.riders) / max(self.capacity, 1)) * LOAD_PENALTY_SCALE
+        # age bonus grows up to AGE_BONUS_CAP — prevents people from waiting forever
+        age_bonus = min(self._oldest_call_age(floor, direction) / AGE_BONUS_WINDOW, AGE_BONUS_CAP)
 
         return dist + dir_penalty + load_penalty - age_bonus
 
@@ -196,11 +203,9 @@ class Elevator:
     def _candidate_targets(self) -> List[tuple[int, float]]:
         targets: List[tuple[int, float]] = []
 
-
         for dest in {r.dest for r in self.riders}:
-            score = abs(dest - self.floor) - 5.0
+            score = abs(dest - self.floor) + RIDER_PRIORITY
             targets.append((dest, score))
-
 
         for floor, direction in self._assigned_hall_calls():
             if floor == self.floor and not self._can_service_hall_here(direction):
@@ -221,14 +226,13 @@ class Elevator:
         if not cands:
             return None
 
-
         if self.direction != IDLE:
             biased = []
             for floor, score in cands:
                 forward = (self.direction == UP and floor >= self.floor) or (
                     self.direction == DOWN and floor <= self.floor
                 )
-                bias = -0.5 if forward else 0.0
+                bias = DIR_BIAS if forward else 0.0
                 biased.append((floor, score + bias))
             cands = biased
 
@@ -248,12 +252,17 @@ class Elevator:
         self.floor = target
 
     def _drop_off(self) -> int:
-        leaving = [r for r in self.riders if r.dest == self.floor]
-        for p in leaving:
-            self.riders.remove(p)
-            p.exit_time = self.env.now
-            self.stats.passenger_served(p.wait)
-        return len(leaving)
+        staying = []
+        dropped = 0
+        for r in self.riders:
+            if r.dest == self.floor:
+                r.exit_time = self.env.now
+                self.stats.passenger_served(r.wait)
+                dropped += 1
+            else:
+                staying.append(r)
+        self.riders = staying
+        return dropped
 
     def _choose_board_direction(self) -> int:
         idx = self.floor - 1
@@ -269,7 +278,6 @@ class Elevator:
             return UP
         if dn_q and not up_q:
             return DOWN
-
 
         up_age = self.env.now - up_q[0].arrival_time
         dn_age = self.env.now - dn_q[0].arrival_time
@@ -407,10 +415,8 @@ def _one_rep(
     avg_util = float(np.mean(util_vals)) if util_vals else 0.0
 
     return {
-        "avg_wait": stats.avg_wait_served(),
         "avg_wait_served": stats.avg_wait_served(),
         "avg_wait_backlog": stats.avg_wait_backlog(SIM_DURATION),
-        "max_wait": stats.wait_max,
         "max_wait_served": stats.wait_max,
         "avg_queue": stats.avg_queue_time_weighted(SIM_DURATION),
         "utilization": round(avg_util, 2),
@@ -465,10 +471,8 @@ def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int, s
         )
 
     metrics = [
-        "avg_wait",
         "avg_wait_served",
         "avg_wait_backlog",
-        "max_wait",
         "max_wait_served",
         "avg_queue",
         "utilization",
@@ -479,7 +483,7 @@ def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int, s
     return {"kpis": kpis, "ci": ci, "frames": frames}
 
 
-def run_both(floors, capacity, arrival_per_min):
+def run_both(floors: int, capacity: int, arrival_per_min: float) -> dict:
     """Main entry point called by the Flask route. Clamps inputs to valid
     ranges, then runs both scenarios (1 vs 2 elevators) with the same
     random seed so the comparison is fair."""

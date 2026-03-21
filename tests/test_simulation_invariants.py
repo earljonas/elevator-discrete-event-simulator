@@ -28,7 +28,7 @@ class SimulationInvariantTests(unittest.TestCase):
             self.assertIn("frames", s)
 
             k = s["kpis"]
-            self.assertGreaterEqual(k["avg_wait"], 0.0)
+            self.assertGreaterEqual(k["avg_wait_served"], 0.0)
             self.assertGreaterEqual(k["avg_wait_served"], 0.0)
             self.assertGreaterEqual(k["avg_wait_backlog"], 0.0)
             self.assertGreaterEqual(k["avg_queue"], 0.0)
