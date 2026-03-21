@@ -1,16 +1,11 @@
-"""
-Model:
-  M arrivals (Poisson)
-  D service times (deterministic travel + dwell)
-  c parallel elevators
-
-Key improvements:
-  - Directional hall queues (up/down)
-  - Time-weighted queue-length average (area under Lq(t))
-  - Separate wait KPIs: served-only vs backlog-inclusive
-  - Dispatch scoring uses distance, direction, load, and call age
-  - Multi-rep mean + 95% CI
-"""
+# M/D/c queueing model for elevator simulation
+#   M - Poisson arrivals (random inter-arrival times)
+#   D - Deterministic service (fixed travel speed + door dwell)
+#   c - 1 or 2 parallel elevator servers
+#
+# Runs two scenarios side-by-side with the same seed:
+#   Scenario A: 1 elevator
+#   Scenario B: 2 elevators
 
 import random
 from collections import deque
@@ -21,12 +16,12 @@ import numpy as np
 import simpy
 from scipy import stats as sp_stats
 
-TRAVEL_SPEED = 2.5          # seconds per floor
-DOOR_DWELL = 5.0            # seconds per stop
-SIM_DURATION = 8 * 3600     # 8 hours
-NUM_REPS = 1               # stronger CI stability
+TRAVEL_SPEED = 2.5          # seconds it takes to move one floor
+DOOR_DWELL = 5.0            # seconds doors stay open at each stop
+SIM_DURATION = 8 * 3600     # total sim time: one 8-hour shift
+NUM_REPS = 1                # number of replications per scenario
 BASE_SEED = random.randrange(1_000_000)
-FRAME_INTERVAL = 10.0
+FRAME_INTERVAL = 10.0       # capture a snapshot every 10 sim-seconds for the animation
 
 UP = 1
 DOWN = -1
@@ -51,7 +46,10 @@ class Passenger:
 
 
 class RepStats:
-    """Replication-level counters for fast, numerically stable KPIs."""
+    """Keeps running totals for one simulation run so we can compute
+    KPIs (avg wait, queue length, utilization) without storing every
+    passenger individually. Uses time-weighted area under the queue
+    length curve for a stable average."""
 
     def __init__(self) -> None:
         self.served_count = 0
@@ -108,6 +106,11 @@ class RepStats:
 
 
 class Elevator:
+    """A single elevator car that decides where to go using a SCAN-based
+    dispatch algorithm. Each elevator scores every pending hall call by
+    distance, direction match, current load, and how long the call has
+    been waiting — then picks the best one."""
+
     def __init__(
         self,
         env: simpy.Environment,
@@ -128,10 +131,10 @@ class Elevator:
         self.all_elevators = all_elevators
         self.stats = stats
 
-        self.floor = 1
+        self.floor = 1            # all elevators start at ground floor
         self.direction = IDLE
         self.riders: List[Passenger] = []
-        self.busy_time = 0.0
+        self.busy_time = 0.0      # accumulated time spent moving or dwelling
 
         env.process(self._run())
 
@@ -146,6 +149,9 @@ class Elevator:
         return self.env.now - q[0].arrival_time
 
     def _score_hall_call(self, floor: int, direction: int) -> float:
+        """Score a hall call — lower score = higher priority.
+        Considers: distance to call, whether we're heading that way,
+        how full the car is, and how long people have been waiting."""
         dist = abs(self.floor - floor)
 
         if self.direction == IDLE:
@@ -157,11 +163,15 @@ class Elevator:
             dir_penalty = 0.0 if moving_toward and self.direction == direction else 2.0
 
         load_penalty = (len(self.riders) / max(self.capacity, 1)) * 2.0
+        # age bonus grows up to 3.0 — prevents people from waiting forever
         age_bonus = min(self._oldest_call_age(floor, direction) / 30.0, 3.0)
 
         return dist + dir_penalty + load_penalty - age_bonus
 
     def _assigned_hall_calls(self) -> List[tuple[int, int]]:
+        """Figure out which hall calls this elevator should handle.
+        Each call goes to whichever elevator scores it lowest (ties
+        broken by elevator ID so they don't fight over the same call)."""
         calls: List[tuple[int, int]] = []
         for floor in range(1, self.floors + 1):
             for direction in (UP, DOWN):
@@ -186,12 +196,12 @@ class Elevator:
     def _candidate_targets(self) -> List[tuple[int, float]]:
         targets: List[tuple[int, float]] = []
 
-        # Rider destinations get strong priority to prevent onboard starvation.
+
         for dest in {r.dest for r in self.riders}:
             score = abs(dest - self.floor) - 5.0
             targets.append((dest, score))
 
-        # Assigned hall calls.
+
         for floor, direction in self._assigned_hall_calls():
             if floor == self.floor and not self._can_service_hall_here(direction):
                 continue
@@ -211,7 +221,7 @@ class Elevator:
         if not cands:
             return None
 
-        # Keep directional stability when scores are close.
+
         if self.direction != IDLE:
             biased = []
             for floor, score in cands:
@@ -228,7 +238,6 @@ class Elevator:
     def _travel(self, target: int):
         dist = abs(target - self.floor)
         if dist == 0:
-            # Prevent zero-time spin when selected target is current floor.
             yield self.env.timeout(1.0)
             return
 
@@ -261,7 +270,7 @@ class Elevator:
         if dn_q and not up_q:
             return DOWN
 
-        # Both queues present: serve older call first.
+
         up_age = self.env.now - up_q[0].arrival_time
         dn_age = self.env.now - dn_q[0].arrival_time
         return UP if up_age >= dn_age else DOWN
@@ -280,7 +289,6 @@ class Elevator:
             self.riders.append(p)
             boarded += 1
 
-        # Direction follows boarded flow when empty beforehand.
         if boarded > 0:
             self.direction = board_dir
 
@@ -315,6 +323,9 @@ def _one_rep(
     seed: int,
     on_frame: Optional[Callable] = None,
 ):
+    """Run one full simulation. Sets up the SimPy environment, spawns
+    elevator processes and a Poisson arrival generator, and captures
+    frame snapshots for the frontend animation."""
     rng = random.Random(seed)
     env = simpy.Environment()
     stats = RepStats()
@@ -345,6 +356,8 @@ def _one_rep(
         stats.queue_enqueue(env.now, p.arrival_time)
 
     def arrivals():
+        """Poisson arrival process — passengers show up at random intervals
+        with random origin/destination floors."""
         while True:
             yield env.timeout(rng.expovariate(rate_per_sec))
             origin = rng.randint(1, floors)
@@ -354,6 +367,8 @@ def _one_rep(
             enqueue_passenger(Passenger(env.now, origin, dest))
 
     def recorder():
+        """Takes periodic snapshots of the simulation state.
+        Each frame gets sent to the frontend for playback."""
         while True:
             yield env.timeout(FRAME_INTERVAL)
             if on_frame is None:
@@ -365,6 +380,10 @@ def _one_rep(
 
             ql = [len(up_queues[i]) + len(down_queues[i]) for i in range(floors)]
 
+            # Frame keys are short to keep the JSON payload small:
+            #   t=time(hrs), ef=elevator floors, ed=directions, el=loads,
+            #   ql=queue lengths, aw=avg wait, aq=avg queue, ut=utilization,
+            #   ps=passengers served, awb=avg wait including backlog
             on_frame(
                 {
                     "t": round(now / 3600.0, 4),
@@ -372,12 +391,10 @@ def _one_rep(
                     "ed": [e.direction for e in all_elevators],
                     "el": [len(e.riders) for e in all_elevators],
                     "ql": ql,
-                    # UI compatibility
                     "aw": stats.avg_wait_served(),
                     "aq": stats.avg_queue_time_weighted(now),
                     "ut": round(avg_util, 1),
                     "ps": int(stats.served_count),
-                    # Extended live metrics
                     "awb": stats.avg_wait_backlog(now),
                 }
             )
@@ -389,7 +406,6 @@ def _one_rep(
     util_vals = [e.busy_time / SIM_DURATION * 100.0 for e in all_elevators]
     avg_util = float(np.mean(util_vals)) if util_vals else 0.0
 
-    # Keep unclipped utilization; tests should detect if model exceeds 100 materially.
     return {
         "avg_wait": stats.avg_wait_served(),
         "avg_wait_served": stats.avg_wait_served(),
@@ -403,6 +419,7 @@ def _one_rep(
 
 
 def _mean_ci(rows: List[dict], metrics: List[str]):
+    """Compute mean and 95% confidence interval across replications."""
     out_mean = {}
     out_ci = {}
 
@@ -463,12 +480,15 @@ def _run_scenario(floors: int, capacity: int, rate: float, num_elevators: int, s
 
 
 def run_both(floors, capacity, arrival_per_min):
+    """Main entry point called by the Flask route. Clamps inputs to valid
+    ranges, then runs both scenarios (1 vs 2 elevators) with the same
+    random seed so the comparison is fair."""
     floors = max(5, min(30, int(floors)))
     capacity = max(4, min(20, int(capacity)))
     arrival = max(5.0, min(50.0, float(arrival_per_min)))
     rate = max(0.001, arrival) / 60.0
 
-    #  One random seed per full experiment run
+    # same seed for both scenarios so they get identical passenger arrivals
     base_seed = random.randrange(1_000_000)
 
     scenario_a = _run_scenario(floors, capacity, rate, 1, base_seed)

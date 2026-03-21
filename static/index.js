@@ -1,22 +1,23 @@
-// ElevaSim frontend controller
-
+// G = global config that mirrors the sidebar sliders
 const G = {
   floors: 10,
   capacity: 8,
   speed: 20,
   animId: null,
-  data: null,
+  data: null,       // raw JSON from the server after a run
 };
 
+// P = playback state for the frame-by-frame animation
 const P = {
-  frames: [],
-  idx: 0,
-  lastTs: null,
-  accMs: 0,
+  frames: [],       // array of {a, b} frame pairs from both scenarios
+  idx: 0,           // current frame index
+  lastTs: null,     // last requestAnimationFrame timestamp
+  accMs: 0,         // accumulated ms for frame advancement
   running: false,
   firstDraw: true,
 };
 
+// base interval between frames — actual speed is MS_PER_FRAME / G.speed
 const MS_PER_FRAME = 80;
 
 function $(id) { return document.getElementById(id); }
@@ -234,6 +235,7 @@ function drawFrame(framePair, animate) {
   setProgress((P.idx / (P.frames.length - 1)) * 100);
 }
 
+// Main animation loop — advances frames based on elapsed real time × speed multiplier
 function animLoop(ts) {
   if (!P.running) return;
 
@@ -340,6 +342,7 @@ function tryAgain() {
   setControlsLocked(false);
 }
 
+// Sends params to the server, waits for simulation to finish, then starts playback
 async function runSimulation() {
   if (G.animId) {
     cancelAnimationFrame(G.animId);
@@ -406,6 +409,7 @@ async function runSimulation() {
   requestAnimationFrame(animLoop);
 }
 
+// Builds a CSV from the final KPIs and triggers a browser download
 function downloadCSV() {
   if (!G.data) return;
   const d = G.data;
