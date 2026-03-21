@@ -37,7 +37,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── SIDEBAR ──────────────────────────────────────────────────────────── */
+
 .sidebar {
   width: 272px;
   min-width: 272px;
@@ -93,7 +93,7 @@ body {
   gap: 8px;
 }
 
-/* M / D tags in section headers */
+
 .tag-m,
 .tag-d {
   font-size: 8px;
@@ -247,7 +247,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   transform: none;
 }
 
-/* ── MAIN ─────────────────────────────────────────────────────────────── */
+
 .main {
   flex: 1;
   display: flex;
@@ -257,7 +257,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   position: relative;
 }
 
-/* ── LOADING OVERLAY ─────────────────────────────────────────────────── */
+
 .loading-overlay {
   display: none;
   position: absolute;
@@ -332,7 +332,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   color: var(--dim);
 }
 
-/* ── STATUS BAR ──────────────────────────────────────────────────────── */
+
 .statusbar {
   height: 48px;
   flex-shrink: 0;
@@ -416,7 +416,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   text-align: right;
 }
 
-/* ── STAGE (two panes) ───────────────────────────────────────────────── */
+
 .stage {
   flex: 1;
   display: grid;
@@ -447,7 +447,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   letter-spacing: .1em;
 }
 
-/* ── PANE ─────────────────────────────────────────────────────────────── */
+
 .pane {
   display: flex;
   flex-direction: column;
@@ -497,7 +497,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   color: var(--amber);
 }
 
-/* ── KPI CARDS ───────────────────────────────────────────────────────── */
+
 .kpi-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -535,6 +535,10 @@ input[type=range]:disabled::-webkit-slider-thumb {
   background: var(--green);
 }
 
+.kpi-served::before {
+  background: var(--accent);
+}
+
 .kpi-name {
   font-family: var(--mono);
   font-size: 8px;
@@ -558,7 +562,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   color: var(--dim);
 }
 
-/* ── BUILDING ────────────────────────────────────────────────────────── */
+
 .building-wrap {
   flex: 1;
   display: flex;
@@ -683,7 +687,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   color: var(--sub);
 }
 
-/* Direction arrow on elevator car */
+
 .car-dir {
   font-size: 10px;
   line-height: 1;
@@ -740,7 +744,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   flex-shrink: 0;
 }
 
-/* Compact queue bar for large queues */
+
 .q-bar {
   height: 6px;
   border-radius: 3px;
@@ -759,7 +763,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   flex-shrink: 0;
 }
 
-/* ── RESULTS PANEL ────────────────────────────────────────────────────── */
+
 .results-panel {
   position: absolute;
   bottom: 0;
@@ -846,7 +850,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   color: #000;
 }
 
-/* Results table */
+
 .rtable {
   width: 100%;
   border-collapse: collapse;
@@ -921,7 +925,7 @@ input[type=range]:disabled::-webkit-slider-thumb {
   vertical-align: middle;
 }
 
-/* CI block */
+
 .ci-block {
   background: var(--card);
   border: 1px solid var(--border);

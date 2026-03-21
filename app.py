@@ -1,13 +1,5 @@
-"""
-app.py  —  Flask server
-=======================
-GET  /     → index.html
-POST /run  → run simulation, return JSON
-
-The "live animation" happens entirely in the browser.
-SimPy finishes in ~5-15 seconds, returns 480 frames per scenario,
-JS plays them back at the user's chosen speed.
-"""
+# POST /run expects JSON: {floors, capacity, arrival}
+# Returns the full simulation result as JSON for the frontend
 
 from flask import Flask, render_template, request, jsonify
 from simulation import run_both
